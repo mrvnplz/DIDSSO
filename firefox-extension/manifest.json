@@ -1,0 +1,13 @@
+{
+    "manifest_version": 3,
+    "name": "DIDSSO-Extension",
+    "description": "This extension is necessary for every user to use the OIDC code flow together with DIDs.",
+
+    "permissions": [
+        "storage",
+        "webRequest",
+        "webRequestBlocking",
+        "tabs",
+        "<all_urls>"
+    ]
+}
