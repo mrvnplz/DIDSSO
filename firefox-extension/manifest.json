@@ -1,13 +1,18 @@
 {
     "manifest_version": 3,
     "name": "DIDSSO-Extension",
+    "version": "1.0.0",
     "description": "This extension is necessary for every user to use the OIDC code flow together with DIDs.",
+
+    "action": {
+        "default_title": "DIDSSO",
+        "default_popup": "frontend/popup.html"
+    },
 
     "permissions": [
         "storage",
         "webRequest",
         "webRequestBlocking",
-        "tabs",
-        "<all_urls>"
+        "tabs"
     ]
 }
