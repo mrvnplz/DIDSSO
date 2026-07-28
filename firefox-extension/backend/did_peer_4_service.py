@@ -11,7 +11,7 @@ from did_peer_4 import encode, resolve_short
 from did_peer_4.input_doc import KeySpec, input_doc_from_keys_and_services
 
 
-WALLET_FILE = Path(__file__).with_name("wallet.json")
+WALLET_FILE = Path(__file__).resolve().parent.parent / "data" / "wallet.json"
 DIDCOMM_SERVICE_ENDPOINT = "http://127.0.0.1:8765/didcomm/inbox"
 
 
@@ -42,22 +42,22 @@ def multikey_ed25519(public_key: bytes) -> str:
 def multikey_x25519(public_key: bytes) -> str:
     return base58btc_encode(b"\xec\x01" + public_key)
 
-
+# lädt daten aus wallet
 def load_wallet() -> dict:
-    if not WALLET_FILE.exists():
-        return {"dids": []}
+    if WALLET_FILE.exists():
+        wallet_text = WALLET_FILE.read_text(encoding="utf-8-sig").strip()
 
-    wallet_text = WALLET_FILE.read_text(encoding="utf-8-sig").strip()
-    if not wallet_text:
-        return {"dids": []}
+        if wallet_text:
+            return json.loads(wallet_text)
 
-    return json.loads(wallet_text)
+    return {"dids": []}
 
-
+# speichert die wallet einträge in json. Falls kein wallet file existiert wird eins erstellt
 def save_wallet(wallet: dict) -> None:
+    WALLET_FILE.parent.mkdir(parents=True, exist_ok=True)
     WALLET_FILE.write_text(json.dumps(wallet, indent=2), encoding="utf-8")
 
-
+# erstellt öffentliche version des ausgewählten wallet eintrags
 def public_record(record: dict) -> dict:
     return {
         "name": record["name"],
@@ -68,15 +68,15 @@ def public_record(record: dict) -> dict:
         "createdAt": record["createdAt"],
     }
 
-
+# returns all records form wallet as public records
 def list_public_records() -> list[dict]:
     return [public_record(record) for record in load_wallet()["dids"]]
 
-
+# extrahiert short form aus der long form
 def short_form_did(did: str) -> str:
     return did[: did.rfind(":")]
 
-
+# creates a peer did
 def create_did_peer_4_record(name: str) -> dict:
     signing_key = ed25519.Ed25519PrivateKey.generate()
     agreement_key = x25519.X25519PrivateKey.generate()
@@ -124,7 +124,7 @@ def create_did_peer_4_record(name: str) -> dict:
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 
-
+# erstellt DID mit entsprechendem namen, speichert in wallet und gibt public_record zurück
 def create_and_store_did(name: str) -> dict:
     clean_name = name.strip()
     if not clean_name:
@@ -134,7 +134,7 @@ def create_and_store_did(name: str) -> dict:
     record = create_did_peer_4_record(clean_name)
     wallet["dids"].append(record)
     save_wallet(wallet)
-    return public_record(record)
+    return public_record(record) 
 
 
 def find_record(did: str) -> dict:
