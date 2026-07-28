@@ -178,11 +178,6 @@ def select_bound_did_for_rp(rp_master_did: str = "", rp_origin: str = "") -> dic
     }
 
 
-def short_form_did(did: str) -> str:
-    parts = did.split(":")
-    return ":".join(parts[:3]) if len(parts) >= 3 else did
-
-
 def didcomm_endpoint_from_did(did: str) -> str:
     document = resolve_peer_4(did)
     for service in document.get("service", []):
@@ -249,7 +244,7 @@ def respond_to_direct_login_challenge(sender_did: str, message: dict) -> dict:
     rp_master_did = body.get("rp_master_did") or sender_did
     binding = binding_for_pairwise_did(user_pairwise_did)
 
-    if selected["did"] != user_pairwise_did and selected["shortDid"] != short_form_did(user_pairwise_did):
+    if selected["did"] != user_pairwise_did:
         raise ValueError("Direct DID login challenge does not match the selected plugin DID")
     if not binding:
         raise ValueError("No pairwise DID binding found for this direct DID login challenge")
