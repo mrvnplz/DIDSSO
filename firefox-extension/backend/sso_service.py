@@ -12,7 +12,9 @@ from didcomm_service import pack_encrypted_message, unpack_message
 from json_storage import load_json, save_json
 from wallet_state_service import (
     bind_pairwise_did_to_rp,
+    binding_matches_rp,
     binding_for_pairwise_did,
+    ensure_pairwise_did_can_bind,
     same_binding_value,
     selected_did_record,
     utc_now,
@@ -42,14 +44,12 @@ def store_sso_challenge(request: dict) -> dict:
         **request,
         "storedAt": utc_now(),
     }
-    binding = bind_pairwise_did_to_rp(
+    ensure_pairwise_did_can_bind(
         pairwise_did=challenge["userPairwiseDid"],
-        rp_master_did=challenge["rpMasterDid"],
         rp_origin=origin_from_url(challenge.get("redirectUrl", "")),
-        source="sso-challenge",
     )
     save_json(CHALLENGE_FILE, challenge)
-    return {"status": "stored", "challenge": challenge, "binding": binding}
+    return {"status": "stored", "challenge": challenge}
 
 
 def didcomm_endpoint_from_did(did: str) -> str:
@@ -115,6 +115,12 @@ def forward_code_to_rp(sender_did: str, message: dict) -> dict:
         didcomm_endpoint_from_did(rp_master_did),
         {"packedMessage": packed["packedMessage"], "senderDid": user_pairwise_did},
     )
+    binding = bind_pairwise_did_to_rp(
+        pairwise_did=user_pairwise_did,
+        rp_master_did=rp_master_did,
+        rp_origin=origin_from_url(challenge.get("redirectUrl", "")),
+        source="successful-sso",
+    )
     return {
         "status": "forwarded",
         "redirectUrl": challenge.get(
@@ -123,6 +129,7 @@ def forward_code_to_rp(sender_did: str, message: dict) -> dict:
         ),
         "rpResponse": rp_response,
         "idpSenderDid": sender_did,
+        "binding": binding,
     }
 
 
@@ -146,6 +153,12 @@ def respond_to_direct_login_challenge(sender_did: str, message: dict) -> dict:
         response_endpoint = (
             didcomm_inbox.rstrip("/").removesuffix("/didcomm/inbox")
             + "/did-login/complete"
+        )
+
+    rp_origin = origin_from_url(response_endpoint)
+    if not binding_matches_rp(binding, rp_origin):
+        raise ValueError(
+            "Direct DID login response endpoint does not match the bound RP origin"
         )
 
     rp_response = post_json(

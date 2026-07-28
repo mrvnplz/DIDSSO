@@ -3,14 +3,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from did_peer_4_service import find_record, public_record
+from did_peer_4_service import (
+    find_record,
+    load_wallet,
+    public_record,
+    save_wallet,
+)
 from json_storage import load_json, save_json
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
 DATA_STORAGE_DIR = BACKEND_DIR.parent / "data"
 SELECTED_DID_FILE = DATA_STORAGE_DIR / "selected_did.json"
-RP_BINDINGS_FILE = BACKEND_DIR / "rp_bindings.json"
 
 
 def utc_now() -> str:
@@ -48,21 +52,32 @@ def store_selected_did(did: str) -> dict:
     return {"status": "selected", "selectedDid": record}
 
 
-def load_rp_bindings() -> dict:
-    bindings = load_json(RP_BINDINGS_FILE, {"bindings": []})
-    if isinstance(bindings, list):
-        return {"bindings": bindings}
-
-    bindings.setdefault("bindings", [])
-    return bindings
-
-
-def save_rp_bindings(bindings: dict) -> None:
-    save_json(RP_BINDINGS_FILE, bindings)
-
-
 def same_binding_value(left: str, right: str) -> bool:
     return bool(left and right and left == right)
+
+
+def public_rp_binding(record: dict) -> dict | None:
+    binding = record.get("rpBinding")
+    if not binding:
+        return None
+
+    return {
+        **binding,
+        "pairwiseDid": record["did"],
+    }
+
+
+def binding_matches_rp(binding: dict, rp_origin: str) -> bool:
+    return same_binding_value(binding.get("rpOrigin", ""), rp_origin)
+
+
+def ensure_pairwise_did_can_bind(
+    pairwise_did: str,
+    rp_origin: str,
+) -> None:
+    binding = public_rp_binding(find_record(pairwise_did))
+    if binding and not binding_matches_rp(binding, rp_origin):
+        raise ValueError("This pairwise DID is already bound to another RP")
 
 
 def bind_pairwise_did_to_rp(
@@ -71,67 +86,60 @@ def bind_pairwise_did_to_rp(
     rp_origin: str,
     source: str,
 ) -> dict:
-    record = public_record(find_record(pairwise_did))
-    bindings = load_rp_bindings()
+    wallet = load_wallet()
+    record = next(
+        (
+            record
+            for record in wallet["dids"]
+            if record["did"] == pairwise_did
+        ),
+        None,
+    )
+    if record is None:
+        raise ValueError("Unknown DID")
 
-    for binding in bindings["bindings"]:
-        same_pairwise_did = binding.get("pairwiseDid") == record["did"]
-        same_rp = (
-            same_binding_value(binding.get("rpMasterDid", ""), rp_master_did)
-            or same_binding_value(binding.get("rpOrigin", ""), rp_origin)
-        )
-
-        if same_pairwise_did and not same_rp:
+    binding = record.get("rpBinding")
+    if binding:
+        if not binding_matches_rp(binding, rp_origin):
             raise ValueError("This pairwise DID is already bound to another RP")
-        if same_pairwise_did and same_rp:
-            binding.update(
-                {
-                    "rpMasterDid": rp_master_did or binding.get("rpMasterDid", ""),
-                    "rpOrigin": rp_origin or binding.get("rpOrigin", ""),
-                    "pairwiseDid": record["did"],
-                    "pairwiseShortDid": record["shortDid"],
-                    "updatedAt": utc_now(),
-                    "lastSource": source,
-                }
-            )
-            save_rp_bindings(bindings)
-            return binding
 
-    binding = {
-        "rpMasterDid": rp_master_did,
-        "rpOrigin": rp_origin,
-        "pairwiseDid": record["did"],
-        "pairwiseShortDid": record["shortDid"],
-        "createdAt": utc_now(),
-        "updatedAt": utc_now(),
-        "lastSource": source,
-    }
-    bindings["bindings"].append(binding)
-    save_rp_bindings(bindings)
-    return binding
+        binding.update(
+            {
+                "rpMasterDid": rp_master_did or binding.get("rpMasterDid", ""),
+                "rpOrigin": rp_origin or binding.get("rpOrigin", ""),
+                "updatedAt": utc_now(),
+                "lastSource": source,
+            }
+        )
+    else:
+        now = utc_now()
+        record["rpBinding"] = {
+            "rpMasterDid": rp_master_did,
+            "rpOrigin": rp_origin,
+            "createdAt": now,
+            "updatedAt": now,
+            "lastSource": source,
+        }
+
+    save_wallet(wallet)
+    return public_rp_binding(record)
 
 
-def binding_for_rp(rp_master_did: str = "", rp_origin: str = "") -> dict | None:
-    for binding in reversed(load_rp_bindings()["bindings"]):
-        if same_binding_value(binding.get("rpMasterDid", ""), rp_master_did):
-            return binding
-        if same_binding_value(binding.get("rpOrigin", ""), rp_origin):
+def binding_for_rp(rp_origin: str) -> dict | None:
+    for record in reversed(load_wallet()["dids"]):
+        binding = public_rp_binding(record)
+        if binding and binding_matches_rp(binding, rp_origin):
             return binding
 
     return None
 
 
 def binding_for_pairwise_did(pairwise_did: str) -> dict | None:
-    record = public_record(find_record(pairwise_did))
-    for binding in load_rp_bindings()["bindings"]:
-        if binding.get("pairwiseDid") == record["did"]:
-            return binding
-
-    return None
+    return public_rp_binding(find_record(pairwise_did))
 
 
-def select_bound_did_for_rp(rp_master_did: str = "", rp_origin: str = "") -> dict:
-    binding = binding_for_rp(rp_master_did, rp_origin)
+def select_bound_did_for_rp(rp_origin: str) -> dict:
+    binding = binding_for_rp(rp_origin)
     if not binding:
         return {"status": "not-bound"}
 

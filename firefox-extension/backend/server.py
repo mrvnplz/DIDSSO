@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,7 +21,6 @@ from wallet_state_service import (
 
 HOST = "127.0.0.1"
 PORT = 8765
-
 
 class DidPeerRequestHandler(BaseHTTPRequestHandler):
     def end_headers(self) -> None:
@@ -107,7 +107,6 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
                 self.send_json(
                     200,
                     select_bound_did_for_rp(
-                        rp_master_did=str(request.get("rpMasterDid", "")),
                         rp_origin=str(request.get("rpOrigin", "")),
                     ),
                 )

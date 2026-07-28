@@ -125,8 +125,21 @@ didList.addEventListener("change", () => {
 });
 
 async function initializePopup() {
-  const { selectedDid = "" } =
+  let { selectedDid = "" } =
     await browser.storage.local.get("selectedDid");
+
+  if (!selectedDid) {
+    const response = await fetch(`${didServiceUrl}/sso/selected-did`, {
+      headers: {
+        "Accept": "application/json"
+      }
+    });
+
+    if (response.ok) {
+      const record = await response.json();
+      selectedDid = record.did || "";
+    }
+  }
 
   await loadDids(selectedDid);
   setStatus("Wallet geladen.");

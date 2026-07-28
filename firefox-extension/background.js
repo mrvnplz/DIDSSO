@@ -4,10 +4,42 @@ const DID_SERVICE_URL = "http://127.0.0.1:8765";
 
 let selectedDid = "";
 
-// loads last selected did from browser storage
-browser.storage.local.get("selectedDid").then((result) => {
-  selectedDid = result.selectedDid || "";
-});
+// Loads the selected DID from browser storage or restores it from the backend.
+async function restoreSelectedDid() {
+  if (selectedDid) {
+    return selectedDid;
+  }
+
+  const stored = await browser.storage.local.get("selectedDid");
+  selectedDid = stored.selectedDid || "";
+
+  if (selectedDid) {
+    return selectedDid;
+  }
+
+  try {
+    const response = await fetch(`${DID_SERVICE_URL}/sso/selected-did`, {
+      headers: {
+        "Accept": "application/json"
+      }
+    });
+
+    if (response.ok) {
+      const record = await response.json();
+      selectedDid = record.did || "";
+
+      if (selectedDid) {
+        await browser.storage.local.set({ selectedDid });
+      }
+    }
+  } catch (error) {
+    console.warn("Could not restore selected DID from backend", error);
+  }
+
+  return selectedDid;
+}
+
+restoreSelectedDid();
 
 // reacts to changes of selected did
 browser.storage.onChanged.addListener((changes, areaName) => {
@@ -56,15 +88,21 @@ browser.webRequest.onCompleted.addListener(
 
 // adds did header to register request at IdP
 browser.webRequest.onBeforeSendHeaders.addListener(
-  (details) => {
+  async (details) => {
     const url = new URL(details.url);
 
     if (
       details.method !== "POST" ||
       url.hostname !== "127.0.0.1" ||
-      url.pathname !== REGISTER_PATH ||
-      !selectedDid
+      url.pathname !== REGISTER_PATH
     ) {
+      return {};
+    }
+
+    await restoreSelectedDid();
+
+    if (!selectedDid) {
+      console.warn("DID header skipped because no DID is selected");
       return {};
     }
 

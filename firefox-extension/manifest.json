@@ -16,5 +16,15 @@
         "webRequest",
         "webRequestBlocking",
         "tabs"
-    ]
+    ],
+    "host_permissions": [
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*",
+        "http://127.0.0.1:8765/*"
+    ],
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "did-sso-firefox-plugin@example.com"
+        }
+    }
 }

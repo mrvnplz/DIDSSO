@@ -52,7 +52,7 @@ def save_wallet(wallet: dict) -> None:
 
 # erstellt öffentliche version des ausgewählten wallet eintrags
 def public_record(record: dict) -> dict:
-    return {
+    public = {
         "name": record["name"],
         "did": record["did"],
         "shortDid": record["shortDid"],
@@ -60,6 +60,10 @@ def public_record(record: dict) -> dict:
         "resolvedDocument": record["resolvedDocument"],
         "createdAt": record["createdAt"],
     }
+    if record.get("rpBinding"):
+        public["rpBinding"] = dict(record["rpBinding"])
+
+    return public
 
 # returns all records form wallet as public records
 def list_public_records() -> list[dict]:
