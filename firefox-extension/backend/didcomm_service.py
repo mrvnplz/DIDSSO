@@ -4,6 +4,7 @@ import base64
 import asyncio
 from dataclasses import asdict
 import json
+import base58
 
 from didcomm import (
     DIDCommService,
@@ -25,8 +26,6 @@ from didcomm import (
 from did_peer_4 import resolve as resolve_peer_4
 
 from did_peer_4_service import (
-    base58btc_decode,
-    decode_multikey_public_key,
     find_record,
     load_wallet,
 )
@@ -38,6 +37,22 @@ X25519_PUBLIC_PREFIX = b"\xec\x01"
 
 def base64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def base58btc_decode(value: str) -> bytes:
+    if not value.startswith("z"):
+        raise ValueError("Expected a base58btc multibase value")
+
+    return base58.b58decode(value[1:])
+
+
+def decode_multikey_public_key(multikey: str, expected_prefix: bytes) -> bytes:
+    decoded = base58btc_decode(multikey)
+    if not decoded.startswith(expected_prefix):
+        raise ValueError("Unexpected multikey type")
+
+    return decoded[len(expected_prefix):]
+
 
 def key_id(did: str, fragment: str) -> str:
     return f"{did}#{fragment}"

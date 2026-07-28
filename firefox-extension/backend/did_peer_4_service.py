@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import base58
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 from did_peer_4 import encode, resolve_short
 from did_peer_4.input_doc import KeySpec, input_doc_from_keys_and_services
+from json_storage import load_json, save_json
 
 
 WALLET_FILE = Path(__file__).resolve().parent.parent / "data" / "wallet.json"
@@ -44,18 +44,11 @@ def multikey_x25519(public_key: bytes) -> str:
 
 # lädt daten aus wallet
 def load_wallet() -> dict:
-    if WALLET_FILE.exists():
-        wallet_text = WALLET_FILE.read_text(encoding="utf-8-sig").strip()
-
-        if wallet_text:
-            return json.loads(wallet_text)
-
-    return {"dids": []}
+    return load_json(WALLET_FILE, {"dids": []})
 
 # speichert die wallet einträge in json. Falls kein wallet file existiert wird eins erstellt
 def save_wallet(wallet: dict) -> None:
-    WALLET_FILE.parent.mkdir(parents=True, exist_ok=True)
-    WALLET_FILE.write_text(json.dumps(wallet, indent=2), encoding="utf-8")
+    save_json(WALLET_FILE, wallet)
 
 # erstellt öffentliche version des ausgewählten wallet eintrags
 def public_record(record: dict) -> dict:

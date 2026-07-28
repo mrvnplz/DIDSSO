@@ -1,3 +1,4 @@
 did-peer-4 @ git+https://github.com/decentralized-identity/did-peer-4.git
+didcomm==0.3.2
 cryptography
 pytest

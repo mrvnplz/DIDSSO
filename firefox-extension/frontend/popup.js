@@ -125,7 +125,10 @@ didList.addEventListener("change", () => {
 });
 
 async function initializePopup() {
-  await loadDids("");
+  const { selectedDid = "" } =
+    await browser.storage.local.get("selectedDid");
+
+  await loadDids(selectedDid);
   setStatus("Wallet geladen.");
 }
 

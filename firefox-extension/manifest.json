@@ -8,7 +8,9 @@
         "default_title": "DIDSSO",
         "default_popup": "frontend/popup.html"
     },
-
+    "background": {
+    "scripts": ["background.js"]
+    },
     "permissions": [
         "storage",
         "webRequest",
