@@ -1,3 +1,4 @@
-- aktuell sidn die pairwise dids an die login sessions gebunden. ich brauche eine pairwise did pro idp nicht pro session
 - rp deregistering, die credentials bleiben aktuell bestehen
 - ist user page bei IdP echt?
+
+- rp data request und user consent

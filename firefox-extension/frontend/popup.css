@@ -52,6 +52,19 @@ label {
   font-weight: 700;
 }
 
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+}
+
 input,
 select,
 output {

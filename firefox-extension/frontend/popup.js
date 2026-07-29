@@ -5,6 +5,9 @@ const didList = document.getElementById("did-list");
 const didAlias = document.getElementById("did-alias");
 const createButton = document.getElementById("create-did");
 const copyButton = document.getElementById("copy-did");
+const automaticDidManagementToggle = document.getElementById(
+  "automatic-did-management"
+);
 const statusText = document.getElementById("status");
 let didRecords = [];
 
@@ -124,9 +127,28 @@ didList.addEventListener("change", () => {
   storeSelectedRecord();
 });
 
+automaticDidManagementToggle.addEventListener("change", async () => {
+  await browser.storage.local.set({
+    automaticDidManagement: automaticDidManagementToggle.checked
+  });
+  setStatus(
+    automaticDidManagementToggle.checked
+      ? "Automatic DID selection enabled."
+      : "Manual DID selection enabled."
+  );
+});
+
 async function initializePopup() {
-  let { selectedDid = "" } =
-    await browser.storage.local.get("selectedDid");
+  const stored = await browser.storage.local.get([
+    "selectedDid",
+    "automaticDidManagement"
+  ]);
+  let selectedDid = stored.selectedDid || "";
+  automaticDidManagementToggle.checked =
+    stored.automaticDidManagement !== false;
+  await browser.storage.local.set({
+    automaticDidManagement: automaticDidManagementToggle.checked
+  });
 
   if (!selectedDid) {
     const response = await fetch(`${didServiceUrl}/sso/selected-did`, {

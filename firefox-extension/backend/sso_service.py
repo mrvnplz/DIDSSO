@@ -12,17 +12,18 @@ from didcomm_service import pack_encrypted_message, unpack_message
 from json_storage import load_json, save_json
 from wallet_state_service import (
     bind_pairwise_did_to_rp,
-    binding_matches_rp,
     binding_for_pairwise_did,
     ensure_pairwise_did_can_bind,
+    forget_prepared_did,
+    normalize_rp_origin,
     same_binding_value,
     selected_did_record,
     utc_now,
+    validate_prepared_did,
 )
 
 
 CHALLENGE_FILE = Path(__file__).resolve().parent / "sso_challenge.json"
-SSO_CODE_TYPE = "https://did-sso.local/protocol/sso/1.0/authorization-code"
 SSO_CODE_FORWARD_TYPE = "https://did-sso.local/protocol/sso/1.0/code-forward"
 DID_LOGIN_CHALLENGE_TYPE = "https://did-sso.local/protocol/did-login/1.0/challenge"
 
@@ -39,16 +40,28 @@ def load_current_challenge() -> dict:
     return load_json(CHALLENGE_FILE, {})
 
 
+def clear_current_challenge() -> None:
+    save_json(CHALLENGE_FILE, {})
+
+
 def store_sso_challenge(request: dict) -> dict:
     challenge = {
         **request,
         "storedAt": utc_now(),
     }
+    rp_origin = normalize_rp_origin(
+        origin_from_url(challenge.get("redirectUrl", ""))
+    )
     ensure_pairwise_did_can_bind(
         pairwise_did=challenge["userPairwiseDid"],
-        rp_origin=origin_from_url(challenge.get("redirectUrl", "")),
+        rp_origin=rp_origin,
+    )
+    validate_prepared_did(
+        pairwise_did=challenge["userPairwiseDid"],
+        rp_origin=rp_origin,
     )
     save_json(CHALLENGE_FILE, challenge)
+    forget_prepared_did(challenge["userPairwiseDid"])
     return {"status": "stored", "challenge": challenge}
 
 
@@ -86,24 +99,34 @@ def post_json(url: str, payload: dict) -> dict:
         raise RuntimeError(f"HTTP {error.code} from {url}: {error_body}") from error
 
 
-def forward_code_to_rp(sender_did: str, message: dict) -> dict:
-    body = message["body"]
+def forward_https_authorization_code(request: dict) -> dict:
     challenge = load_current_challenge()
     if not challenge:
         raise ValueError("No active RP nonce challenge found")
+    if request.get("sessionId") != challenge.get("sessionId"):
+        raise ValueError("Authorization code does not match the active SSO session")
+
+    code = str(request.get("code", "")).strip()
+    if not code:
+        raise ValueError("Authorization code is required")
 
     user_pairwise_did = challenge["userPairwiseDid"]
     rp_master_did = challenge["rpMasterDid"]
     session_id = challenge["sessionId"]
+    idp_master_did = challenge.get("idpMasterDid", "")
+    if not idp_master_did:
+        raise ValueError("The active SSO challenge has no IdP DID")
+
     forward_body = {
-        "code": body["code"],
+        "code": code,
         "nonce": challenge["nonce"],
         "session_id": session_id,
         "rp_master_did": rp_master_did,
-        "idp_master_did": challenge.get("idpMasterDid") or body["idp_master_did"],
+        "idp_master_did": idp_master_did,
     }
-    if body.get("replace_id"):
-        forward_body["replace_id"] = body["replace_id"]
+    replace_id = str(request.get("replaceId", "")).strip()
+    if replace_id:
+        forward_body["replace_id"] = replace_id
 
     packed = pack_encrypted_message(
         sender_did=user_pairwise_did,
@@ -121,16 +144,19 @@ def forward_code_to_rp(sender_did: str, message: dict) -> dict:
         rp_origin=origin_from_url(challenge.get("redirectUrl", "")),
         source="successful-sso",
     )
-    return {
+    result = {
         "status": "forwarded",
         "redirectUrl": challenge.get(
             "redirectUrl",
             f"http://127.0.0.1:9000/sso/wait?session_id={session_id}",
         ),
         "rpResponse": rp_response,
-        "idpSenderDid": sender_did,
+        "authorizationCodeTransport": "https",
+        "authenticationOrigin": request.get("authenticationOrigin", ""),
         "binding": binding,
     }
+    clear_current_challenge()
+    return result
 
 
 def respond_to_direct_login_challenge(sender_did: str, message: dict) -> dict:
@@ -147,18 +173,22 @@ def respond_to_direct_login_challenge(sender_did: str, message: dict) -> dict:
     if not same_binding_value(binding.get("rpMasterDid", ""), rp_master_did):
         raise ValueError("Direct DID login challenge does not match the bound RP")
 
+    validate_prepared_did(
+        pairwise_did=user_pairwise_did,
+        rp_origin=normalize_rp_origin(binding.get("rpOrigin", "")),
+    )
+
+    didcomm_inbox = didcomm_endpoint_from_did(rp_master_did)
+    expected_response_endpoint = (
+        didcomm_inbox.rstrip("/").removesuffix("/didcomm/inbox")
+        + "/did-login/complete"
+    )
     response_endpoint = body.get("response_endpoint")
     if not response_endpoint:
-        didcomm_inbox = didcomm_endpoint_from_did(rp_master_did)
-        response_endpoint = (
-            didcomm_inbox.rstrip("/").removesuffix("/didcomm/inbox")
-            + "/did-login/complete"
-        )
-
-    rp_origin = origin_from_url(response_endpoint)
-    if not binding_matches_rp(binding, rp_origin):
+        response_endpoint = expected_response_endpoint
+    if response_endpoint.rstrip("/") != expected_response_endpoint.rstrip("/"):
         raise ValueError(
-            "Direct DID login response endpoint does not match the bound RP origin"
+            "Direct DID login response endpoint does not match the RP DIDComm service"
         )
 
     rp_response = post_json(
@@ -182,8 +212,6 @@ def receive_didcomm_message(packed_message: dict | str, sender_did: str = "") ->
     unpacked = unpack_message(packed_message, sender_did=sender_did)
     message = unpacked["message"]
 
-    if message.get("type") == SSO_CODE_TYPE:
-        return forward_code_to_rp(sender_did, message)
     if message.get("type") == DID_LOGIN_CHALLENGE_TYPE:
         return respond_to_direct_login_challenge(sender_did, message)
 

@@ -7,13 +7,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from did_peer_4_service import create_and_store_did, list_public_records
 from didcomm_service import pack_encrypted_message, unpack_message
 from sso_service import (
+    clear_current_challenge,
+    forward_https_authorization_code,
     load_current_challenge,
     receive_didcomm_message,
     store_sso_challenge,
 )
 from wallet_state_service import (
     ensure_data_storage,
-    select_bound_did_for_rp,
+    prepare_did_for_rp,
+    select_did_for_service,
     selected_did_record,
     store_selected_did,
 )
@@ -55,6 +58,10 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def is_plugin_request(self) -> bool:
+        origin = self.headers.get("Origin", "")
+        return not origin or origin.startswith("moz-extension://")
+
     def do_GET(self) -> None:
         if self.path == "/dids":
             origin = self.headers.get("Origin", "")
@@ -89,6 +96,19 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
         try:
             request = self.read_json_body()
 
+            if self.path in {
+                "/create-did",
+                "/wallet/selected-did",
+                "/wallet/select-for-service",
+                "/wallet/prepare-for-rp",
+                "/sso/authorization-code",
+            } and not self.is_plugin_request():
+                self.send_json(
+                    403,
+                    {"error": "This wallet endpoint is only available to the plugin"},
+                )
+                return
+
             if self.path == "/create-did":
                 self.send_json(
                     200,
@@ -103,12 +123,25 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            if self.path == "/wallet/select-for-rp":
+            if self.path == "/wallet/select-for-service":
                 self.send_json(
                     200,
-                    select_bound_did_for_rp(
-                        rp_origin=str(request.get("rpOrigin", "")),
+                    select_did_for_service(
+                        service_origin=str(request.get("serviceOrigin", "")),
                     ),
+                )
+                return
+
+            if self.path == "/wallet/prepare-for-rp":
+                prepared = prepare_did_for_rp(
+                    rp_origin=str(request.get("rpOrigin", "")),
+                    automatic=bool(request.get("automatic", True)),
+                    selected_did=str(request.get("selectedDid", "")),
+                )
+                clear_current_challenge()
+                self.send_json(
+                    200,
+                    prepared,
                 )
                 return
 
@@ -129,6 +162,10 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
 
             if self.path == "/sso/store-challenge":
                 self.send_json(200, store_sso_challenge(request))
+                return
+
+            if self.path == "/sso/authorization-code":
+                self.send_json(200, forward_https_authorization_code(request))
                 return
 
             if self.path == "/didcomm/unpack":
