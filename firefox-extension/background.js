@@ -3,6 +3,7 @@ const DIDSSO_CODE_HEADER = "X-DIDSSO-Code";
 const DIDSSO_MESSAGE_TYPE_HEADER = "X-DIDSSO-Message-Type";
 const DIDSSO_SERVICE_HEADER = "X-DIDSSO-Service";
 const DIDSSO_REPLACE_ID_HEADER = "X-DIDSSO-Replace-ID";
+const DIDSSO_ERROR_HEADER = "X-DIDSSO-Error";
 const REGISTER_PATH = "/register";
 const DID_SERVICE_URL = "http://127.0.0.1:8765";
 
@@ -10,6 +11,7 @@ let selectedDid = "";
 let automaticDidManagement = true;
 let activeSsoAuthentication = null;
 let knownIdpOrigins = new Set();
+const activeSsoMonitors = new Set();
 
 const managementSettingsReady = browser.storage.local
   .get([
@@ -186,6 +188,52 @@ async function clearSsoAuthentication() {
   await browser.storage.local.remove("activeSsoAuthentication");
 }
 
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function monitorSsoCompletion(context) {
+  if (!context?.sessionId || activeSsoMonitors.has(context.sessionId)) {
+    return;
+  }
+
+  activeSsoMonitors.add(context.sessionId);
+  const deadline = Date.now() + 10 * 60 * 1000;
+  try {
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(
+          `${DID_SERVICE_URL}/sso/result?session_id=${encodeURIComponent(context.sessionId)}`,
+          {headers: {"Accept": "application/json"}, cache: "no-store"}
+        );
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Could not read the SSO result");
+        }
+        if (result.status === "sso-completed") {
+          await clearSsoAuthentication();
+          await browser.tabs.update(context.tabId, {url: result.redirectUrl});
+          return;
+        }
+        if (result.status === "sso-failed") {
+          await clearSsoAuthentication();
+          if (result.redirectUrl) {
+            await browser.tabs.update(context.tabId, {url: result.redirectUrl});
+          }
+          console.error("Asynchronous DIDSSO login failed", result.error);
+          return;
+        }
+      } catch (error) {
+        console.warn("Waiting for the asynchronous DIDSSO result", error);
+      }
+      await wait(1000);
+    }
+    console.error("Timed out waiting for the asynchronous DIDSSO result");
+  } finally {
+    activeSsoMonitors.delete(context.sessionId);
+  }
+}
+
 async function handleAuthorizationCodeResponse(details) {
   await managementSettingsReady;
 
@@ -195,13 +243,21 @@ async function handleAuthorizationCodeResponse(details) {
     DIDSSO_MESSAGE_TYPE_HEADER
   );
   const code = headerValue(details.responseHeaders, DIDSSO_CODE_HEADER);
+  const authorizationError = headerValue(
+    details.responseHeaders,
+    DIDSSO_ERROR_HEADER
+  );
+  const isAuthorizationCode =
+    messageType === "authorization-code" && Boolean(code);
+  const isAuthorizationError =
+    messageType === "authorization-error" &&
+    authorizationError === "access_denied";
 
   if (
     details.statusCode < 200 ||
     details.statusCode >= 300 ||
     url.pathname !== "/sso/issue-code" ||
-    messageType !== "authorization-code" ||
-    !code
+    (!isAuthorizationCode && !isAuthorizationError)
   ) {
     return;
   }
@@ -226,7 +282,10 @@ async function handleAuthorizationCodeResponse(details) {
       );
     }
 
-    const response = await fetch(`${DID_SERVICE_URL}/sso/authorization-code`, {
+    const endpoint = isAuthorizationError
+      ? "/sso/authorization-error"
+      : "/sso/authorization-code";
+    const response = await fetch(`${DID_SERVICE_URL}${endpoint}`, {
       method: "POST",
       headers: {
         "Accept": "application/json",
@@ -234,6 +293,7 @@ async function handleAuthorizationCodeResponse(details) {
       },
       body: JSON.stringify({
         code,
+        error: authorizationError,
         replaceId: headerValue(
           details.responseHeaders,
           DIDSSO_REPLACE_ID_HEADER
@@ -248,12 +308,27 @@ async function handleAuthorizationCodeResponse(details) {
       throw new Error(data.error || "Authorization code could not be forwarded");
     }
 
-    await clearSsoAuthentication();
     await browser.tabs.update(details.tabId, {url: data.redirectUrl});
+    if (isAuthorizationError) {
+      await clearSsoAuthentication();
+    } else {
+      activeSsoAuthentication = {
+        ...context,
+        pendingRedirectUrl: data.redirectUrl
+      };
+      await browser.storage.local.set({activeSsoAuthentication});
+      void monitorSsoCompletion(activeSsoAuthentication);
+    }
   } catch (error) {
     console.error("Could not process HTTPS DIDSSO authorization code", error);
   }
 }
+
+managementSettingsReady.then(() => {
+  if (activeSsoAuthentication?.sessionId) {
+    void monitorSsoCompletion(activeSsoAuthentication);
+  }
+});
 
 browser.webRequest.onCompleted.addListener(
   (details) => {

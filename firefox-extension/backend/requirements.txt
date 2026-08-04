@@ -1,4 +1,5 @@
 did-peer-4 @ git+https://github.com/decentralized-identity/did-peer-4.git
+Authlib @ git+https://github.com/mrvnplz/authlib.git@bc047b813749a9fd7e49ab04f2351e9cfbcfc4a3
 didcomm==0.3.2
 cryptography
 pytest
