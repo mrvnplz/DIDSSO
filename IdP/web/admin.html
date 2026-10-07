@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>IdP Administration</title>
+        <link rel="stylesheet" href="/style.css">
+    </head>
+    <body>
+        <a class="top-link" href="/">Home</a>
+        <main class="wide-page">
+            <section class="panel">
+                <h1>IdP Administration</h1>
+                <p class="helper-text">Review and decide registration requests from relying parties.</p>
+
+                <button id="reload" type="button">Reload RP requests</button>
+                <p id="request-status" class="status-text" role="status" aria-live="polite"></p>
+
+                <section class="admin-list-section">
+                    <h2>Open registration requests</h2>
+                    <div id="requests" class="admin-list"></div>
+                </section>
+            </section>
+        </main>
+
+        <script>
+            const requestsContainer = document.getElementById("requests");
+            const requestStatus = document.getElementById("request-status");
+            const reloadButton = document.getElementById("reload");
+
+            async function responsePayload(response) {
+                const text = await response.text();
+                if (!text) {
+                    return {};
+                }
+
+                try {
+                    return JSON.parse(text);
+                } catch (error) {
+                    return {error: text};
+                }
+            }
+
+            function shortDid(did) {
+                if (!did || did.length <= 46) {
+                    return did || "Not provided";
+                }
+
+                return `${did.slice(0, 30)}...${did.slice(-12)}`;
+            }
+
+            function formatTimestamp(value) {
+                if (!value) {
+                    return "Unknown";
+                }
+
+                const date = new Date(value);
+                return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+            }
+
+            function detailRow(label, value, options = {}) {
+                const row = document.createElement("div");
+                row.className = "request-detail";
+
+                const term = document.createElement("dt");
+                term.textContent = label;
+
+                const description = document.createElement("dd");
+                const valueElement = options.code
+                    ? document.createElement("code")
+                    : document.createElement("span");
+                valueElement.className = "request-value";
+                valueElement.textContent = options.displayValue || value || "Not provided";
+                if (options.title) {
+                    valueElement.title = options.title;
+                }
+                description.appendChild(valueElement);
+
+                if (options.copy && value) {
+                    const copyButton = document.createElement("button");
+                    copyButton.className = "copy-button secondary";
+                    copyButton.type = "button";
+                    copyButton.textContent = "Copy";
+                    copyButton.addEventListener("click", async () => {
+                        try {
+                            await navigator.clipboard.writeText(value);
+                            copyButton.textContent = "Copied";
+                            setTimeout(() => {
+                                copyButton.textContent = "Copy";
+                            }, 1200);
+                        } catch (error) {
+                            requestStatus.className = "status-text error-text";
+                            requestStatus.textContent = "Could not copy the value.";
+                        }
+                    });
+                    description.appendChild(copyButton);
+                }
+
+                row.append(term, description);
+                return row;
+            }
+
+            function renderRequest(request) {
+                const article = document.createElement("article");
+                article.className = "request-card";
+
+                const header = document.createElement("div");
+                header.className = "request-card-header";
+
+                const titleGroup = document.createElement("div");
+                const title = document.createElement("h3");
+                title.textContent = request.rp_name || "Unnamed relying party";
+                const subtitle = document.createElement("span");
+                subtitle.className = "request-subtitle";
+                subtitle.textContent = "Requests registration with this identity provider";
+                titleGroup.append(title, subtitle);
+
+                const badge = document.createElement("span");
+                badge.className = "status-badge pending";
+                badge.textContent = "Pending";
+                header.append(titleGroup, badge);
+
+                const details = document.createElement("dl");
+                details.className = "request-details";
+                details.append(
+                    detailRow("Received", formatTimestamp(request.received_at)),
+                    detailRow("RP Master DID", request.rp_master_did, {
+                        code: true,
+                        copy: true,
+                        displayValue: shortDid(request.rp_master_did),
+                        title: request.rp_master_did,
+                    }),
+                    detailRow("Request ID", request.request_id, {
+                        code: true,
+                        copy: true,
+                    }),
+                );
+
+                const acceptButton = document.createElement("button");
+                acceptButton.type = "button";
+                acceptButton.textContent = "Accept registration";
+                acceptButton.disabled = request.status !== "pending";
+
+                const rejectButton = document.createElement("button");
+                rejectButton.type = "button";
+                rejectButton.className = "danger";
+                rejectButton.textContent = "Reject registration";
+                rejectButton.disabled = request.status !== "pending";
+
+                const actions = document.createElement("div");
+                actions.className = "request-actions";
+                actions.append(acceptButton, rejectButton);
+
+                const decisionStatus = document.createElement("p");
+                decisionStatus.className = "request-decision-status";
+                decisionStatus.setAttribute("role", "status");
+
+                acceptButton.addEventListener("click", () => {
+                    const confirmed = window.confirm(
+                        `Accept the registration request from "${request.rp_name || "this RP"}"?`
+                    );
+                    if (confirmed) {
+                        decide(request, "accept", "", [acceptButton, rejectButton], decisionStatus);
+                    }
+                });
+
+                rejectButton.addEventListener("click", () => {
+                    const reason = window.prompt(
+                        `Why should the registration request from "${request.rp_name || "this RP"}" be rejected?`,
+                        "Rejected by IdP admin",
+                    );
+                    if (reason !== null) {
+                        decide(request, "reject", reason.trim(), [acceptButton, rejectButton], decisionStatus);
+                    }
+                });
+
+                article.append(header, details, actions, decisionStatus);
+                return article;
+            }
+
+            async function loadRequests({keepStatus = false} = {}) {
+                reloadButton.disabled = true;
+                requestsContainer.replaceChildren();
+                const loading = document.createElement("p");
+                loading.className = "helper-text";
+                loading.textContent = "Loading registration requests...";
+                requestsContainer.appendChild(loading);
+                if (!keepStatus) {
+                    requestStatus.textContent = "";
+                }
+
+                try {
+                    const response = await fetch("/admin/rp-requests");
+                    const requests = await responsePayload(response);
+                    if (!response.ok) {
+                        throw new Error(requests.error || "Could not load RP requests.");
+                    }
+                    if (!Array.isArray(requests)) {
+                        throw new Error(requests.error || "The RP request response is invalid.");
+                    }
+
+                    requestsContainer.replaceChildren();
+                    const pendingRequests = requests.filter(
+                        (request) => request.status === "pending"
+                    );
+                    if (pendingRequests.length === 0) {
+                        const empty = document.createElement("p");
+                        empty.className = "helper-text empty-state";
+                        empty.textContent = "There are no open RP registration requests.";
+                        requestsContainer.appendChild(empty);
+                        return;
+                    }
+
+                    for (const request of pendingRequests) {
+                        requestsContainer.appendChild(renderRequest(request));
+                    }
+                } catch (error) {
+                    requestsContainer.replaceChildren();
+                    requestStatus.className = "status-text error-text";
+                    requestStatus.textContent = error.message;
+                } finally {
+                    reloadButton.disabled = false;
+                }
+            }
+
+            async function decide(request, decision, reason, buttons, decisionStatus) {
+                buttons.forEach((button) => {
+                    button.disabled = true;
+                });
+                decisionStatus.className = "request-decision-status";
+                decisionStatus.textContent = decision === "accept"
+                    ? "Accepting registration..."
+                    : "Rejecting registration...";
+
+                try {
+                    const payload = {requestId: request.request_id};
+                    if (decision === "reject") {
+                        payload.reason = reason || "Rejected by IdP admin";
+                    }
+                    const response = await fetch(`/admin/rp-requests/${decision}`, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(payload),
+                    });
+                    const result = await responsePayload(response);
+                    if (!response.ok || result.error) {
+                        throw new Error(result.error || "The registration decision failed.");
+                    }
+
+                    requestStatus.className = "status-text success-text";
+                    requestStatus.textContent = decision === "accept"
+                        ? `Registration for ${request.rp_name || "the RP"} accepted.`
+                        : `Registration for ${request.rp_name || "the RP"} rejected.`;
+                    await loadRequests({keepStatus: true});
+                } catch (error) {
+                    decisionStatus.className = "request-decision-status error-text";
+                    decisionStatus.textContent = error.message;
+                    buttons.forEach((button) => {
+                        button.disabled = request.status !== "pending";
+                    });
+                }
+            }
+
+            reloadButton.addEventListener("click", () => loadRequests());
+            loadRequests();
+        </script>
+    </body>
+</html>

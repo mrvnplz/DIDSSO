@@ -1,0 +1,10 @@
+/target
+/idp_registrations.json
+/received_idp_messages.json
+/registration_proofs.json
+/sso_sessions.json
+/token_grants.json
+/user_accounts.json
+/didcomm-backend/wallet.json
+/didcomm-backend/__pycache__/
+*.py[cod]

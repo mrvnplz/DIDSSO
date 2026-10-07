@@ -1,0 +1,60 @@
+DIDSSO runtime setup
+====================
+
+All active components are located below this DIDSSO directory.
+
+Create or update both Python runtimes once:
+
+    .\setup-runtime.ps1
+
+The script creates .venv-didcomm for IdP/RP and the independent environment
+firefox-extension\.venv for the extension backend. IdP and RP never import
+dependencies from the extension environment. Set DIDSSO_PYTHON only to
+override the shared IdP/RP backend interpreter.
+
+Reset state
+-----------
+
+Preview and validate all reset targets without changing data:
+
+    .\reset-state.ps1 -ValidateOnly
+    .\reset-state.ps1 -WhatIf
+
+Perform the reset explicitly:
+
+    .\reset-state.ps1
+
+Registration proof backends
+---------------------------
+
+The default backend is RISC Zero. To use STWO in a PowerShell terminal, set:
+
+    $env:DIDSSO_PROOF_BACKEND = "stwo"
+
+Start IdP and RP with the same backend. Switching the backend requires a
+registration credential issued for that backend.
+
+An RP needs a seperate registration with the IdP for each proof backend.
+
+The STWO upstream source is not vendored into this repository. Install or
+update its pinned WSL/Linux source and binaries once from the DIDSSO root:
+
+    wsl bash ./zk-stark/setup_stwo.sh
+
+The setup checks out the commit recorded in zk-stark/STWO_COMMIT and applies
+the versioned compatibility patch from zk-stark/patches.
+
+Start the services
+------------------
+
+1. Run `cargo run` in RP (port 3002 is configured by Cargo).
+2. Run `.\start.ps1` in RP\didcomm-backend.
+3. Run `cargo run` in IdP (port 3001 is configured by Cargo).
+4. Run `.\start.ps1` in IdP\didcomm-backend.
+5. Run .\start.ps1 in firefox-extension\backend.
+6. Load firefox-extension\manifest.json as a temporary Firefox add-on at
+   about:debugging#/runtime/this-firefox.
+
+The DIDComm start scripts configure the selected proof backend and the larger
+Authlib JWE ciphertext limit. RISC Zero and STWO continue to use their WSL
+wrappers from zk-risc0 and zk-stark on Windows.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from threading import Lock
 from urllib.parse import urlparse
@@ -16,7 +17,9 @@ from json_storage import load_json, save_json
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
-DATA_STORAGE_DIR = BACKEND_DIR.parent / "data"
+DATA_STORAGE_DIR = Path(
+    os.environ.get("DIDSSO_DATA_DIR", BACKEND_DIR.parent / "data")
+).resolve()
 SELECTED_DID_FILE = DATA_STORAGE_DIR / "selected_did.json"
 PREPARED_RP_ORIGINS: dict[str, str] = {}
 PREPARED_RP_ORIGINS_LOCK = Lock()
@@ -59,6 +62,15 @@ def store_selected_did(did: str) -> dict:
 
 def same_binding_value(left: str, right: str) -> bool:
     return bool(left and right and left == right)
+
+
+def canonical_peer_did(did: str) -> str:
+    parts = str(did).split(":")
+    return ":".join(parts[:3]) if len(parts) >= 3 else str(did)
+
+
+def same_did_value(left: str, right: str) -> bool:
+    return bool(left and right and canonical_peer_did(left) == canonical_peer_did(right))
 
 
 def normalize_rp_origin(value: str) -> str:
@@ -133,6 +145,17 @@ def record_for_service(wallet: dict, service_origin: str) -> dict | None:
     )
 
 
+def bound_record_for_service(wallet: dict, service_origin: str) -> dict | None:
+    return next(
+        (
+            record
+            for record in reversed(wallet["dids"])
+            if binding_matches_rp(record.get("rpBinding", {}), service_origin)
+        ),
+        None,
+    )
+
+
 def create_managed_did(service_origin: str) -> dict:
     record = create_did_peer_4_record(automatic_did_name(service_origin))
     record["managedByPlugin"] = True
@@ -147,12 +170,19 @@ def binding_matches_rp(binding: dict, rp_origin: str) -> bool:
 def ensure_pairwise_did_can_bind(
     pairwise_did: str,
     rp_origin: str,
+    rp_master_did: str = "",
 ) -> None:
     rp_origin = normalize_rp_origin(rp_origin)
     record = find_record(pairwise_did)
     binding = public_rp_binding(record)
     if binding and not binding_matches_rp(binding, rp_origin):
         raise ValueError("This pairwise DID is already bound to another RP")
+
+    bound_master_did = str((binding or {}).get("rpMasterDid", ""))
+    if bound_master_did and rp_master_did and not same_did_value(
+        bound_master_did, rp_master_did
+    ):
+        raise ValueError("The RP challenge DID does not match the stored RP binding")
 
     pending_rp_origin = record.get("pendingRpOrigin", "")
     if pending_rp_origin and pending_rp_origin != rp_origin:
@@ -206,6 +236,11 @@ def bind_pairwise_did_to_rp(
     if binding:
         if not binding_matches_rp(binding, rp_origin):
             raise ValueError("This pairwise DID is already bound to another RP")
+        bound_master_did = str(binding.get("rpMasterDid", ""))
+        if bound_master_did and rp_master_did and not same_did_value(
+            bound_master_did, rp_master_did
+        ):
+            raise ValueError("The RP challenge DID does not match the stored RP binding")
 
         binding.update(
             {
@@ -242,66 +277,20 @@ def automatic_did_name(rp_origin: str) -> str:
 
 
 def select_did_for_service(service_origin: str) -> dict:
+    """Select an existing bound DID without creating one during navigation."""
     service_origin = normalize_rp_origin(service_origin)
-    selected = load_json(SELECTED_DID_FILE, {})
-    selected_did = selected.get("did", "")
     wallet = load_wallet()
-    if not selected_did:
-        service_record = record_for_service(wallet, service_origin)
-        status = "selected"
-        if service_record is None:
-            service_record = create_managed_did(service_origin)
-            wallet["dids"].append(service_record)
-            save_wallet(wallet)
-            status = "created"
-
-        selected = store_selected_did(service_record["did"])
-        remember_prepared_did(service_record["did"], service_origin)
-        return {
-            "status": status,
-            "serviceOrigin": service_origin,
-            "selectedDid": selected["selectedDid"],
-        }
-
-    current_record = next(
-        (
-            record
-            for record in wallet["dids"]
-            if record["did"] == selected_did
-            or record["shortDid"] == selected_did
-        ),
-        None,
-    )
-    if current_record is None:
-        raise ValueError("Unknown selected DID")
-
-    current_service_origin = service_origin_for_record(current_record)
-    if not current_service_origin:
-        return {
-            "status": "unassigned-selection",
-            "serviceOrigin": service_origin,
-            "selectedDid": public_record(current_record),
-        }
-    if current_service_origin == service_origin:
-        remember_prepared_did(current_record["did"], service_origin)
-        return {
-            "status": "selected",
-            "serviceOrigin": service_origin,
-            "selectedDid": public_record(current_record),
-        }
-
-    service_record = record_for_service(wallet, service_origin)
-    status = "switched"
+    service_record = bound_record_for_service(wallet, service_origin)
     if service_record is None:
-        service_record = create_managed_did(service_origin)
-        wallet["dids"].append(service_record)
-        save_wallet(wallet)
-        status = "created"
+        return {
+            "status": "not-bound",
+            "serviceOrigin": service_origin,
+        }
 
     selected = store_selected_did(service_record["did"])
     remember_prepared_did(service_record["did"], service_origin)
     return {
-        "status": status,
+        "status": "selected",
         "serviceOrigin": service_origin,
         "selectedDid": selected["selectedDid"],
     }

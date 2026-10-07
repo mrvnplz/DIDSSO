@@ -1,0 +1,27 @@
+services:
+  idp-didcomm:
+    build:
+      context: .
+      dockerfile: docker/didcomm-risc0.Dockerfile
+      target: idp
+
+  idp-web:
+    build:
+      context: .
+      dockerfile: docker/idp-web.Dockerfile
+
+  wallet-backend:
+    build:
+      context: .
+      dockerfile: docker/wallet-backend.Dockerfile
+
+  rp-didcomm:
+    build:
+      context: .
+      dockerfile: docker/didcomm-risc0.Dockerfile
+      target: rp
+
+  rp-web:
+    build:
+      context: .
+      dockerfile: docker/rp-web.Dockerfile

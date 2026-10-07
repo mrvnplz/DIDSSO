@@ -1,6 +1,11 @@
 .agents/
+.env
+/benchmark-results/
 .venv/
+.venv-didcomm/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 /firefox-extension/data/
+/firefox-extension/backend/tests
+/zk-stark/stwo-cairo/

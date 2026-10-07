@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>IdP</title>
+        <link rel="stylesheet" href="/style.css">
+    </head>
+
+    <body>
+        <main>
+            <section class="panel">
+                <h1>IdP Homepage</h1>
+                <p class="helper-text">Manage the identity provider and local user accounts.</p>
+
+                <section class="master-did">
+                    <h2>Current IdP Master DID</h2>
+                    <code id="master-did">Loading...</code>
+                    <button id="copy-master-did" type="button" disabled>Copy Master DID</button>
+                    <p id="copy-status" class="status-text" aria-live="polite"></p>
+                </section>
+
+                <div class="button-row three-columns">
+                    <a class="button-link secondary" href="/admin">Admin</a>
+                    <a class="button-link" href="/register">Register</a>
+                    <a class="button-link" href="/login">Login</a>
+                </div>
+            </section>
+        </main>
+
+        <script>
+            const masterDidElement = document.getElementById("master-did");
+            const copyButton = document.getElementById("copy-master-did");
+            const copyStatus = document.getElementById("copy-status");
+            let masterDid = "";
+
+            async function loadMasterDid() {
+                try {
+                    const response = await fetch("/master-did");
+                    if (!response.ok) {
+                        throw new Error("Could not load Master DID.");
+                    }
+
+                    const data = await response.json();
+                    masterDid = data.masterDid || "";
+                    masterDidElement.textContent = masterDid || "No Master DID available.";
+                    copyButton.disabled = masterDid.length === 0;
+                } catch (error) {
+                    masterDidElement.textContent = error.message;
+                    copyButton.disabled = true;
+                }
+            }
+
+            async function copyMasterDid() {
+                if (!masterDid) {
+                    return;
+                }
+
+                try {
+                    await navigator.clipboard.writeText(masterDid);
+                    copyStatus.textContent = "Copied.";
+                } catch (error) {
+                    copyStatus.textContent = "Copy failed.";
+                }
+            }
+
+            copyButton.addEventListener("click", copyMasterDid);
+            loadMasterDid();
+        </script>
+    </body>
+</html>

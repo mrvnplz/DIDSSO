@@ -1,0 +1,85 @@
+name: didsso
+
+services:
+  idp-didcomm:
+    image: ${DIDSSO_REGISTRY:-didsso-local}/idp-didcomm:${DIDSSO_VERSION:-local}
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    environment:
+      DIDSSO_DIDCOMM_ENDPOINT: http://idp-didcomm:8770/didcomm/inbox
+    expose:
+      - "8770"
+    volumes:
+      - idp-data:/data
+    networks:
+      - didsso
+
+  idp-web:
+    image: ${DIDSSO_REGISTRY:-didsso-local}/idp-web:${DIDSSO_VERSION:-local}
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      DIDSSO_IDP_DIDCOMM_HOST: idp-didcomm
+      DIDSSO_IDP_DIDCOMM_PORT: "8770"
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - idp-data:/data
+    depends_on:
+      - idp-didcomm
+    networks:
+      - didsso
+
+  wallet-backend:
+    image: ${DIDSSO_REGISTRY:-didsso-local}/wallet-backend:${DIDSSO_VERSION:-local}
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      DIDSSO_DIDCOMM_ENDPOINT: http://wallet-backend:8765/didcomm/inbox
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - wallet-data:/data
+    networks:
+      - didsso
+
+  rp-didcomm:
+    image: ${DIDSSO_REGISTRY:-didsso-local}/rp-didcomm:${DIDSSO_VERSION:-local}
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    environment:
+      DIDSSO_DIDCOMM_ENDPOINT: http://rp-didcomm:8771/didcomm/inbox
+      DIDSSO_IDP_WEB_PUBLIC_URL: https://127.0.0.1:3001
+      DIDSSO_RP_WEB_PUBLIC_URL: http://127.0.0.1:3002
+      DIDSSO_WALLET_BACKEND_URL: http://wallet-backend:8765
+    ports:
+      - "127.0.0.1:8771:8771"
+    volumes:
+      - rp-data:/data
+    depends_on:
+      - idp-didcomm
+      - wallet-backend
+    networks:
+      - didsso
+
+  rp-web:
+    image: ${DIDSSO_REGISTRY:-didsso-local}/rp-web:${DIDSSO_VERSION:-local}
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:3002"
+    depends_on:
+      - rp-didcomm
+    networks:
+      - didsso
+
+networks:
+  didsso:
+    driver: bridge
+
+volumes:
+  idp-data:
+  rp-data:
+  wallet-data:

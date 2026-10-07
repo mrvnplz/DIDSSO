@@ -8,7 +8,7 @@ from urllib.request import Request, urlopen
 
 from did_peer_4 import resolve as resolve_peer_4
 
-from didcomm_service import pack_encrypted_message, unpack_message
+from didcomm_service import message_thread_id, pack_encrypted_message, unpack_message
 from json_storage import load_json, save_json
 from wallet_state_service import (
     DATA_STORAGE_DIR,
@@ -24,7 +24,7 @@ from wallet_state_service import (
 )
 
 
-CHALLENGE_FILE = DATA_STORAGE_DIR / "sso_challenge.json"
+AUTH_REQUEST_FILE = DATA_STORAGE_DIR / "sso_auth_request.json"
 SSO_RESULT_FILE = DATA_STORAGE_DIR / "sso_result.json"
 SSO_CODE_FORWARD_TYPE = "https://did-sso.local/protocol/sso/1.0/code-forward"
 SSO_RESULT_TYPE = "https://did-sso.local/protocol/sso/1.0/result"
@@ -44,18 +44,31 @@ def origin_from_url(value: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-def load_current_challenge() -> dict:
-    return load_json(CHALLENGE_FILE, {})
+def load_current_auth_request() -> dict:
+    return load_json(AUTH_REQUEST_FILE, {})
 
 
-def clear_current_challenge() -> None:
-    save_json(CHALLENGE_FILE, {})
+def clear_current_auth_request() -> None:
+    save_json(AUTH_REQUEST_FILE, {})
+
+
+def load_matching_auth_request(response: dict) -> dict:
+    auth_request = load_current_auth_request()
+    if not auth_request:
+        raise ValueError("No active RP authorization request found")
+    if response.get("sessionId") != auth_request.get("sessionId"):
+        raise ValueError("Authorization response has a different session")
+    if response.get("state") != auth_request.get("state"):
+        raise ValueError("Authorization response has a different state")
+    return auth_request
 
 
 def load_sso_result(session_id: str = "") -> dict:
     result = load_json(SSO_RESULT_FILE, {})
     if not result or (session_id and result.get("sessionId") != session_id):
         return {"status": "pending", "sessionId": session_id}
+    if result.get("status") == "sso-retry-required":
+        save_sso_result({})
     return result
 
 
@@ -63,26 +76,40 @@ def save_sso_result(result: dict) -> None:
     save_json(SSO_RESULT_FILE, result)
 
 
-def store_sso_challenge(request: dict) -> dict:
-    challenge = {
+def store_sso_auth_request(request: dict) -> dict:
+    auth_request = {
         **request,
         "storedAt": utc_now(),
     }
+    if auth_request.get("responseType") != "code":
+        raise ValueError("Only the authorization code response type is supported")
+    if not str(auth_request.get("nonce", "")).strip():
+        raise ValueError("Authorization request has no nonce")
+    if not str(auth_request.get("state", "")).strip():
+        raise ValueError("Authorization request has no state")
+    if not str(auth_request.get("didcommThreadId", "")).strip():
+        raise ValueError("Authorization request has no DIDComm thread ID")
+    if not isinstance(auth_request.get("scope"), str):
+        raise ValueError("Authorization request scope must be a string")
+    rp_master_did = str(auth_request.get("rpMasterDid", "")).strip()
+    if not rp_master_did:
+        raise ValueError("Authorization request has no RP master DID")
     rp_origin = normalize_rp_origin(
-        origin_from_url(challenge.get("redirectUrl", ""))
+        origin_from_url(auth_request.get("redirectUrl", ""))
     )
     ensure_pairwise_did_can_bind(
-        pairwise_did=challenge["userPairwiseDid"],
+        pairwise_did=auth_request["userPairwiseDid"],
         rp_origin=rp_origin,
+        rp_master_did=rp_master_did,
     )
     validate_prepared_did(
-        pairwise_did=challenge["userPairwiseDid"],
+        pairwise_did=auth_request["userPairwiseDid"],
         rp_origin=rp_origin,
     )
     save_sso_result({})
-    save_json(CHALLENGE_FILE, challenge)
-    forget_prepared_did(challenge["userPairwiseDid"])
-    return {"status": "stored", "challenge": challenge}
+    save_json(AUTH_REQUEST_FILE, auth_request)
+    forget_prepared_did(auth_request["userPairwiseDid"])
+    return {"status": "stored", "authRequest": auth_request}
 
 
 def didcomm_endpoint_from_did(did: str) -> str:
@@ -120,26 +147,26 @@ def post_json(url: str, payload: dict) -> dict:
 
 
 def forward_https_authorization_code(request: dict) -> dict:
-    challenge = load_current_challenge()
-    if not challenge:
-        raise ValueError("No active RP nonce challenge found")
-    if request.get("sessionId") != challenge.get("sessionId"):
-        raise ValueError("Authorization code does not match the active SSO session")
+    auth_request = load_matching_auth_request(request)
 
     code = str(request.get("code", "")).strip()
     if not code:
         raise ValueError("Authorization code is required")
 
-    user_pairwise_did = challenge["userPairwiseDid"]
-    rp_master_did = challenge["rpMasterDid"]
-    session_id = challenge["sessionId"]
-    idp_master_did = challenge.get("idpMasterDid", "")
+    user_pairwise_did = auth_request["userPairwiseDid"]
+    rp_master_did = auth_request["rpMasterDid"]
+    session_id = auth_request["sessionId"]
+    thread_id = str(auth_request.get("didcommThreadId", "")).strip()
+    if not thread_id:
+        raise ValueError("The active SSO authorization request has no DIDComm thread ID")
+    idp_master_did = auth_request.get("idpMasterDid", "")
     if not idp_master_did:
-        raise ValueError("The active SSO challenge has no IdP DID")
+        raise ValueError("The active SSO authorization request has no IdP DID")
 
     forward_body = {
         "code": code,
-        "nonce": challenge["nonce"],
+        "nonce": auth_request["nonce"],
+        "state": auth_request["state"],
         "session_id": session_id,
         "rp_master_did": rp_master_did,
         "idp_master_did": idp_master_did,
@@ -153,36 +180,25 @@ def forward_https_authorization_code(request: dict) -> dict:
         recipient_did=rp_master_did,
         body=forward_body,
         message_type=SSO_CODE_FORWARD_TYPE,
+        message_id=thread_id,
     )
-    rp_response = post_json(
+    post_json(
         didcomm_endpoint_from_did(rp_master_did),
         {"packedMessage": packed["packedMessage"], "senderDid": user_pairwise_did},
     )
     result = {
         "status": "accepted",
-        "redirectUrl": challenge.get(
-            "redirectUrl",
-            f"http://127.0.0.1:9000/sso/wait?session_id={session_id}",
-        ),
-        "rpResponse": rp_response,
-        "authorizationCodeTransport": "https",
-        "authenticationOrigin": request.get("authenticationOrigin", ""),
+        "redirectUrl": auth_request["redirectUrl"],
     }
     return result
 
 
 def authorization_error_redirect(request: dict) -> dict:
-    challenge = load_current_challenge()
-    if not challenge:
-        raise ValueError("No active RP nonce challenge found")
-    if request.get("sessionId") != challenge.get("sessionId"):
-        raise ValueError("Authorization error does not match the active SSO session")
+    auth_request = load_matching_auth_request(request)
     if request.get("error") != "access_denied":
         raise ValueError("Unsupported authorization error")
 
-    redirect_url = challenge.get("redirectUrl", "")
-    if not redirect_url:
-        raise ValueError("The active SSO challenge has no redirect URL")
+    redirect_url = auth_request["redirectUrl"]
     parts = urlsplit(redirect_url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query["error"] = "access_denied"
@@ -192,12 +208,13 @@ def authorization_error_redirect(request: dict) -> dict:
             (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
         ),
     }
-    clear_current_challenge()
+    clear_current_auth_request()
     return result
 
 
 def respond_to_direct_login_challenge(sender_did: str, message: dict) -> dict:
     body = message["body"]
+    thread_id = message_thread_id(message)
     session_id = str(body.get("session_id", "")).strip()
     nonce = str(body.get("nonce", "")).strip()
     user_pairwise_did = body["user_pairwise_did"]
@@ -236,6 +253,7 @@ def respond_to_direct_login_challenge(sender_did: str, message: dict) -> dict:
             "rp_master_did": rp_master_did,
         },
         message_type=DID_LOGIN_RESPONSE_TYPE,
+        thread_id=thread_id,
     )
 
     with _DIRECT_LOGIN_ATTEMPTS_LOCK:
@@ -244,11 +262,12 @@ def respond_to_direct_login_challenge(sender_did: str, message: dict) -> dict:
             "nonce": nonce,
             "user_pairwise_did": user_pairwise_did,
             "rp_master_did": rp_master_did,
+            "didcomm_thread_id": thread_id,
             "result": None,
         }
 
     try:
-        rp_response = post_json(
+        post_json(
             didcomm_endpoint_from_did(rp_master_did),
             {
                 "packedMessage": packed["packedMessage"],
@@ -283,6 +302,8 @@ def handle_direct_login_result(sender_did: str, message: dict) -> dict:
             raise ValueError("Direct DID login result does not match the challenge nonce")
         if body.get("status") != "logged_in":
             raise ValueError("Direct DID login result does not confirm a successful login")
+        if message_thread_id(message) != attempt["didcomm_thread_id"]:
+            raise ValueError("Direct DID login result belongs to a different DIDComm thread")
 
         recipients = message.get("to", [])
         if isinstance(recipients, str):
@@ -300,61 +321,90 @@ def handle_direct_login_result(sender_did: str, message: dict) -> dict:
 
 
 def handle_sso_result(sender_did: str, message: dict) -> dict:
-    challenge = load_current_challenge()
-    if not challenge:
-        raise ValueError("No active RP nonce challenge found")
+    auth_request = load_current_auth_request()
+    if not auth_request:
+        raise ValueError("No active RP authorization request found")
 
     body = message.get("body", {})
-    if body.get("session_id") != challenge.get("sessionId"):
+    if body.get("session_id") != auth_request.get("sessionId"):
         raise ValueError("SSO result does not match the active session")
+    if message_thread_id(message) != auth_request.get("didcommThreadId"):
+        raise ValueError("SSO result belongs to a different DIDComm thread")
 
-    rp_master_did = challenge.get("rpMasterDid", "")
+    rp_master_did = auth_request.get("rpMasterDid", "")
     if sender_did != rp_master_did or body.get("rp_master_did") != rp_master_did:
         raise ValueError("SSO result did not come from the challenged RP")
     recipients = message.get("to", [])
     if isinstance(recipients, str):
         recipients = [recipients]
-    if challenge.get("userPairwiseDid") not in recipients:
+    if auth_request.get("userPairwiseDid") not in recipients:
         raise ValueError("SSO result has a different DIDComm recipient")
 
     status = body.get("status")
     if status == "success":
         redirect_url = str(body.get("redirect_url", "")).strip()
-        expected_origin = origin_from_url(challenge.get("redirectUrl", ""))
+        expected_origin = origin_from_url(auth_request.get("redirectUrl", ""))
         if not redirect_url or origin_from_url(redirect_url) != expected_origin:
             raise ValueError("SSO result has an invalid RP redirect URL")
         binding = bind_pairwise_did_to_rp(
-            pairwise_did=challenge["userPairwiseDid"],
+            pairwise_did=auth_request["userPairwiseDid"],
             rp_master_did=rp_master_did,
-            rp_origin=origin_from_url(challenge.get("redirectUrl", "")),
+            rp_origin=origin_from_url(auth_request.get("redirectUrl", "")),
             source="successful-sso",
         )
         result = {
             "status": "sso-completed",
-            "sessionId": challenge["sessionId"],
+            "sessionId": auth_request["sessionId"],
             "redirectUrl": redirect_url,
             "binding": binding,
         }
         save_sso_result(result)
-        clear_current_challenge()
+        clear_current_auth_request()
         return result
 
     if status == "error":
-        redirect_url = challenge.get("redirectUrl", "")
+        error_code = body.get("error_code", "sso_failed")
+        retry_parameters = {
+            "account_exists_replacement_required": "replacement_required",
+            "replacement_not_available": "replacement_unavailable",
+        }
+        if error_code in retry_parameters:
+            authorization_url = auth_request.get("authorizationUrl", "")
+            if not authorization_url:
+                raise ValueError("The active SSO request has no authorization URL")
+            parts = urlsplit(authorization_url)
+            query = dict(parse_qsl(parts.query, keep_blank_values=True))
+            query[retry_parameters[error_code]] = "1"
+            result = {
+                "status": "sso-retry-required",
+                "sessionId": auth_request["sessionId"],
+                "redirectUrl": urlunsplit(
+                    (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+                ),
+                "errorCode": error_code,
+                "error": body.get(
+                    "error_message",
+                    "An existing RP account requires pairwise DID replacement",
+                ),
+            }
+            save_sso_result(result)
+            return result
+
+        redirect_url = auth_request.get("redirectUrl", "")
         parts = urlsplit(redirect_url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
-        query["error"] = body.get("error_code", "sso_failed")
+        query["error"] = error_code
         result = {
             "status": "sso-failed",
-            "sessionId": challenge["sessionId"],
+            "sessionId": auth_request["sessionId"],
             "redirectUrl": urlunsplit(
                 (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
             ),
-            "errorCode": body.get("error_code", "sso_failed"),
+            "errorCode": error_code,
             "error": body.get("error_message", "The SSO request failed"),
         }
         save_sso_result(result)
-        clear_current_challenge()
+        clear_current_auth_request()
         return result
 
     raise ValueError("Unsupported SSO result status")

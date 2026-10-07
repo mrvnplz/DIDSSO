@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base58
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,8 +12,15 @@ from did_peer_4.input_doc import KeySpec, input_doc_from_keys_and_services
 from json_storage import load_json, save_json
 
 
-WALLET_FILE = Path(__file__).resolve().parent.parent / "data" / "wallet.json"
-DIDCOMM_SERVICE_ENDPOINT = "http://127.0.0.1:8765/didcomm/inbox"
+DATA_DIR = Path(
+    os.environ.get(
+        "DIDSSO_DATA_DIR", Path(__file__).resolve().parent.parent / "data"
+    )
+).resolve()
+WALLET_FILE = DATA_DIR / "wallet.json"
+DIDCOMM_SERVICE_ENDPOINT = os.environ.get(
+    "DIDSSO_DIDCOMM_ENDPOINT", "http://127.0.0.1:8765/didcomm/inbox"
+)
 
 
 def base58btc_encode(data: bytes) -> str:
@@ -99,8 +107,10 @@ def create_did_peer_4_record(name: str) -> dict:
     service = {
         "id": "#didcomm-0",
         "type": "DIDCommMessaging",
-        "serviceEndpoint": DIDCOMM_SERVICE_ENDPOINT,
-        "accept": ["didcomm/v2"],
+        "serviceEndpoint": {
+            "uri": DIDCOMM_SERVICE_ENDPOINT,
+            "accept": ["didcomm/v2"],
+        },
     }
 
     input_document = input_doc_from_keys_and_services(keys, [service])

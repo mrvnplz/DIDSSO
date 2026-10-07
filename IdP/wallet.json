@@ -1,0 +1,112 @@
+{
+  "dids": [
+    {
+      "name": "idp-master",
+      "did": "did:peer:4zQmPFPJSFsJPxJUv5HACzkdab8sdCSxs9mhLuzCxhro4q9k:z31WEvMSqcgFXChdhktWpdjekNmTbrLDCW4e3CXKfCEK5W3kAbVFjNWycB7qke5wezuTDrdAQRHvJFGks3Ranzf5NhvNFnUGMeruD73q9jtcWeDVupAzVWXC3so8uqYHfMsyMEBPqrkSGoZe95h12P3EEdmVuqxKg4iPQZrgGyuR1h25ULohFoL4rvfqTRoPrXArWdsa1xUfLodHrQaxVrhheA1pR3zVFrpVdMAWhqe4Wius4ZNBcfq1HMhZ4vtD9fnZp7TJKjiHvfavaCK2a8iWT6Xxj7QKyYMbYivTtZMguB27qf11mrrbK8RkBXA4VmKSRTMkr9dfTKkZ8PVCrski7UzwnGC6jCPJdec1GoR89zzwkwVRrs86b5iVvhacoGcHjR3TT6bT53HS64x8FKLpRLwt9B7sJKS4pjNjvb6DWJGiDznMtoSxbeJ77m2Mear5f9pdL4zArfAHTtX24stPTTh33H4vXg7MMRZGVB67dSJoZSwBodMswghZmezB8uU5Q94MDc87c9TAh4rciQPLjq61bWZ8uGJxKG1XxnjzbSt1mjnotLvhUD3Fn5HNfvxhHwcBdnWW4iwhA5zUmdBcNLPYifHiSUkQYxTHhZRAMZq8DYvsKY9jYynkpYgQhrfrmzcvZna1JMQnmcBYEqiotR9xGZxiHQFxk1Pe1gF9aGSpmLCdrH5j28D85nYrrbA6X69AakiXwEjqa8djvKxgfBemVj2vdh1DxN3UZRtLrhXDbrqMQG4tksbapFW4QMZsPgDxE2NtQjg1vwexRtuTcYhvB3KZsR1zBaqm7XjUp5KK3t63sDDhNUqoLbEDUvdYde2Yun5YR2k",
+      "shortDid": "did:peer:4zQmPFPJSFsJPxJUv5HACzkdab8sdCSxs9mhLuzCxhro4q9k",
+      "inputDocument": {
+        "@context": [
+          "https://www.w3.org/ns/did/v1",
+          "https://w3id.org/security/multikey/v1"
+        ],
+        "verificationMethod": [
+          {
+            "id": "#key-0",
+            "type": "Multikey",
+            "publicKeyMultibase": "z6MkjNqusabjdokydE9sQKoZdh43FuNfEo9QMh6bUFqcLRY2"
+          },
+          {
+            "id": "#key-1",
+            "type": "Multikey",
+            "publicKeyMultibase": "z6LSghe1tGQaDm2sRikNYAXkK87N1RQz7oFVYWn32WdBUoMJ"
+          }
+        ],
+        "authentication": [
+          "#key-0"
+        ],
+        "assertionMethod": [
+          "#key-0"
+        ],
+        "capabilityInvocation": [
+          "#key-0"
+        ],
+        "capabilityDelegation": [
+          "#key-0"
+        ],
+        "service": [
+          {
+            "id": "#didcomm-0",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": {
+              "uri": "http://127.0.0.1:8770/didcomm/inbox",
+              "accept": [
+                "didcomm/v2"
+              ]
+            }
+          }
+        ],
+        "keyAgreement": [
+          "#key-1"
+        ]
+      },
+      "resolvedDocument": {
+        "@context": [
+          "https://www.w3.org/ns/did/v1",
+          "https://w3id.org/security/multikey/v1"
+        ],
+        "verificationMethod": [
+          {
+            "id": "#key-0",
+            "type": "Multikey",
+            "publicKeyMultibase": "z6MkjNqusabjdokydE9sQKoZdh43FuNfEo9QMh6bUFqcLRY2",
+            "controller": "did:peer:4zQmPFPJSFsJPxJUv5HACzkdab8sdCSxs9mhLuzCxhro4q9k"
+          },
+          {
+            "id": "#key-1",
+            "type": "Multikey",
+            "publicKeyMultibase": "z6LSghe1tGQaDm2sRikNYAXkK87N1RQz7oFVYWn32WdBUoMJ",
+            "controller": "did:peer:4zQmPFPJSFsJPxJUv5HACzkdab8sdCSxs9mhLuzCxhro4q9k"
+          }
+        ],
+        "authentication": [
+          "#key-0"
+        ],
+        "assertionMethod": [
+          "#key-0"
+        ],
+        "capabilityInvocation": [
+          "#key-0"
+        ],
+        "capabilityDelegation": [
+          "#key-0"
+        ],
+        "service": [
+          {
+            "id": "#didcomm-0",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": {
+              "uri": "http://127.0.0.1:8770/didcomm/inbox",
+              "accept": [
+                "didcomm/v2"
+              ]
+            }
+          }
+        ],
+        "keyAgreement": [
+          "#key-1"
+        ],
+        "id": "did:peer:4zQmPFPJSFsJPxJUv5HACzkdab8sdCSxs9mhLuzCxhro4q9k",
+        "alsoKnownAs": [
+          "did:peer:4zQmPFPJSFsJPxJUv5HACzkdab8sdCSxs9mhLuzCxhro4q9k:z31WEvMSqcgFXChdhktWpdjekNmTbrLDCW4e3CXKfCEK5W3kAbVFjNWycB7qke5wezuTDrdAQRHvJFGks3Ranzf5NhvNFnUGMeruD73q9jtcWeDVupAzVWXC3so8uqYHfMsyMEBPqrkSGoZe95h12P3EEdmVuqxKg4iPQZrgGyuR1h25ULohFoL4rvfqTRoPrXArWdsa1xUfLodHrQaxVrhheA1pR3zVFrpVdMAWhqe4Wius4ZNBcfq1HMhZ4vtD9fnZp7TJKjiHvfavaCK2a8iWT6Xxj7QKyYMbYivTtZMguB27qf11mrrbK8RkBXA4VmKSRTMkr9dfTKkZ8PVCrski7UzwnGC6jCPJdec1GoR89zzwkwVRrs86b5iVvhacoGcHjR3TT6bT53HS64x8FKLpRLwt9B7sJKS4pjNjvb6DWJGiDznMtoSxbeJ77m2Mear5f9pdL4zArfAHTtX24stPTTh33H4vXg7MMRZGVB67dSJoZSwBodMswghZmezB8uU5Q94MDc87c9TAh4rciQPLjq61bWZ8uGJxKG1XxnjzbSt1mjnotLvhUD3Fn5HNfvxhHwcBdnWW4iwhA5zUmdBcNLPYifHiSUkQYxTHhZRAMZq8DYvsKY9jYynkpYgQhrfrmzcvZna1JMQnmcBYEqiotR9xGZxiHQFxk1Pe1gF9aGSpmLCdrH5j28D85nYrrbA6X69AakiXwEjqa8djvKxgfBemVj2vdh1DxN3UZRtLrhXDbrqMQG4tksbapFW4QMZsPgDxE2NtQjg1vwexRtuTcYhvB3KZsR1zBaqm7XjUp5KK3t63sDDhNUqoLbEDUvdYde2Yun5YR2k"
+        ]
+      },
+      "keys": {
+        "signingPublicMultikey": "z6MkjNqusabjdokydE9sQKoZdh43FuNfEo9QMh6bUFqcLRY2",
+        "agreementPublicMultikey": "z6LSghe1tGQaDm2sRikNYAXkK87N1RQz7oFVYWn32WdBUoMJ",
+        "signingPrivateRawBase58btc": "zA3hDqaSKGvTncRNVN4VFpTtVaVFz8CE7cGycF2y8dPNj",
+        "agreementPrivateRawBase58btc": "z26VpHfVVq9cD16rBfW7GYT14fpBqBAsKiF1k4ykE6fcK"
+      },
+      "createdAt": "2026-09-29T16:01:30.647853+00:00"
+    }
+  ]
+}

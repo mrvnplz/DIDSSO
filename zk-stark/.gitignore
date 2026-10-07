@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+proof-artifacts/
+verified-proof-artifacts/
+registration-proof-program/
+registration-proof-program-v3/
+stwo-target/

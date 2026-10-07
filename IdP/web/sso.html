@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IdP DIDSSO</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <main>
+        <section class="panel">
+            <div id="session-check-view">
+                <h1>DIDSSO Authentication</h1>
+                <p class="helper-text">Checking your existing IdP session...</p>
+            </div>
+
+            <div id="authentication-view" hidden>
+                <h1>DIDSSO Authentication</h1>
+                <p class="helper-text">Authenticate with your identity provider.</p>
+                <form id="authentication-form">
+                    <label for="email">Email</label>
+                    <input id="email" type="email" autocomplete="username" required>
+
+                    <label for="password">Password</label>
+                    <input id="password" type="password" autocomplete="current-password" required>
+
+                    <label class="checkbox-row">
+                        <input id="replace-pairwise-did" type="checkbox">
+                        Replace pairwise DID
+                    </label>
+                    <p id="replacement-guidance" class="warning-text" hidden>
+                        An account already exists for this service. Activate Replace pairwise DID to recover that account with the new wallet.
+                    </p>
+
+                    <button type="submit">Continue</button>
+                </form>
+            </div>
+
+            <div id="consent-view" hidden>
+                <h1 id="consent-title">Data sharing consent</h1>
+                <p id="consent-description" class="helper-text">A service would like to receive the following data.</p>
+                <ul id="claim-list" class="claim-list"></ul>
+                <p id="no-claims" class="helper-text" hidden>No profile data was requested.</p>
+                <p class="helper-text">By accepting, you also allow this service to request updated values for up to 7 days without asking you again. This access is intended for later logins, but the service can use it even while you are not signed in.</p>
+                <div class="actions">
+                    <button id="decline" class="secondary" type="button">Decline</button>
+                    <button id="accept" type="button">Accept</button>
+                </div>
+            </div>
+
+            <pre id="result" hidden></pre>
+        </section>
+    </main>
+
+    <script>
+        const scopeClaims = {
+            profile: ["name", "preferred_username", "birthdate"],
+            email: ["email"],
+        };
+        const claimLabels = {
+            name: "Full name",
+            preferred_username: "Preferred username",
+            email: "Email",
+            birthdate: "Birthdate",
+        };
+        const params = new URLSearchParams(window.location.search);
+        const responseType = params.get("response_type") || "";
+        const nonce = params.get("nonce") || "";
+        const state = params.get("state") || "";
+        const replacementRequired = params.get("replacement_required") === "1";
+        const replacementUnavailable = params.get("replacement_unavailable") === "1";
+        const scopes = (params.get("scope") || "")
+            .split(/\s+/)
+            .filter(Boolean);
+        const invalidScopes = scopes.filter((scope) => !Object.hasOwn(scopeClaims, scope));
+        const claims = [...new Set(scopes.flatMap((scope) => scopeClaims[scope] || []))];
+        const sessionCheckView = document.getElementById("session-check-view");
+        const authenticationView = document.getElementById("authentication-view");
+        const consentView = document.getElementById("consent-view");
+        const consentTitle = document.getElementById("consent-title");
+        const consentDescription = document.getElementById("consent-description");
+        const claimList = document.getElementById("claim-list");
+        const noClaims = document.getElementById("no-claims");
+        const result = document.getElementById("result");
+        const replacementGuidance = document.getElementById("replacement-guidance");
+        const replaceCheckbox = document.getElementById("replace-pairwise-did");
+        let authenticationId = "";
+
+        if (replacementRequired) {
+            replaceCheckbox.checked = true;
+            replaceCheckbox.required = true;
+            replacementGuidance.textContent = "An account already exists for this service. Re-enter your IdP credentials to authorize replacing its pairwise DID.";
+            replacementGuidance.hidden = false;
+            consentTitle.textContent = "Confirm pairwise DID replacement";
+            consentDescription.textContent = "Review the shared data and confirm that the existing account may be bound to the new pairwise DID.";
+            document.getElementById("accept").textContent = "Replace DID and continue";
+        } else if (replacementUnavailable) {
+            replaceCheckbox.checked = false;
+            replacementGuidance.textContent = "No existing account was found for this service. Continue with Replace pairwise DID disabled to create a new account.";
+            replacementGuidance.hidden = false;
+        }
+
+        function showError(value) {
+            result.hidden = false;
+            result.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        }
+
+        function renderConsent(values) {
+            claimList.replaceChildren();
+            for (const claim of claims) {
+                const row = document.createElement("li");
+                const label = document.createElement("strong");
+                const value = document.createElement("span");
+                label.textContent = claimLabels[claim];
+                value.textContent = values[claim] || "";
+                row.append(label, value);
+                claimList.append(row);
+            }
+            noClaims.hidden = claims.length !== 0;
+            sessionCheckView.hidden = true;
+            authenticationView.hidden = true;
+            consentView.hidden = false;
+            result.hidden = true;
+        }
+
+        function authorizationRequestPayload() {
+            return {
+                responseType,
+                nonce,
+                state,
+                scopes,
+                replacePairwiseDid: replaceCheckbox.checked,
+            };
+        }
+
+        function showAuthentication() {
+            sessionCheckView.hidden = true;
+            authenticationView.hidden = false;
+            consentView.hidden = true;
+            result.hidden = true;
+            document.getElementById("email").focus();
+        }
+
+        async function authenticateExistingSession() {
+            try {
+                const response = await fetch("/sso/session-authenticate", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(authorizationRequestPayload()),
+                });
+                const data = await response.json();
+                if (response.status === 401) {
+                    showAuthentication();
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error(data.error || "Could not validate the IdP session.");
+                }
+                authenticationId = data.authenticationId;
+                renderConsent(data.claims || {});
+            } catch (error) {
+                showAuthentication();
+                showError(error.message);
+            }
+        }
+
+        async function sendConsent(consent) {
+            document.getElementById("accept").disabled = true;
+            document.getElementById("decline").disabled = true;
+            try {
+                const response = await fetch("/sso/issue-code", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({authenticationId, consent}),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "The consent response failed.");
+                }
+                result.hidden = false;
+                result.textContent = consent
+                    ? replacementRequired
+                        ? "Pairwise DID replacement authorized. Waiting for the DIDSSO plugin..."
+                        : "Consent recorded. Waiting for the DIDSSO plugin..."
+                    : "Consent declined. Returning to the service...";
+            } catch (error) {
+                showError(error.message);
+                document.getElementById("accept").disabled = false;
+                document.getElementById("decline").disabled = false;
+            }
+        }
+
+        document.getElementById("authentication-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (responseType !== "code" || !nonce || !state || invalidScopes.length) {
+                showError("The authorization request is invalid.");
+                return;
+            }
+            const submitButton = event.submitter;
+            if (replacementRequired && !replaceCheckbox.checked) {
+                showError("Pairwise DID replacement must be selected to continue this recovery flow.");
+                return;
+            }
+            submitButton.disabled = true;
+            try {
+                const response = await fetch("/sso/authenticate", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        email: document.getElementById("email").value.trim(),
+                        password: document.getElementById("password").value,
+                        ...authorizationRequestPayload(),
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Authentication failed.");
+                }
+                authenticationId = data.authenticationId;
+                renderConsent(data.claims || {});
+            } catch (error) {
+                showError(error.message);
+                submitButton.disabled = false;
+            }
+        });
+
+        document.getElementById("accept").addEventListener("click", () => sendConsent(true));
+        document.getElementById("decline").addEventListener("click", () => sendConsent(false));
+
+        if (responseType !== "code" || !nonce || !state || invalidScopes.length) {
+            sessionCheckView.hidden = true;
+            showError("The authorization request is missing required parameters or contains unsupported scopes.");
+            document.querySelector("#authentication-form button").disabled = true;
+        } else if (replacementRequired) {
+            showAuthentication();
+        } else {
+            authenticateExistingSession();
+        }
+    </script>
+</body>
+</html>

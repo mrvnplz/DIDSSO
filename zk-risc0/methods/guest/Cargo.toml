@@ -1,0 +1,13 @@
+[package]
+name = "method"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+credential-risc0-types = { path = "../../types" }
+risc0-zkvm = { version = "^3.0.6", default-features = false, features = ["std"] }
+
+[target.'cfg(all(target_os = "zkvm", target_vendor = "risc0"))'.dependencies]
+risc0-crypto = "=0.1.0-rc.1"

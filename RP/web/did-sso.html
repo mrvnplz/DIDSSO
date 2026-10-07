@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RP DID SSO</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <main>
+        <section class="login-panel">
+            <h1>DID Registration</h1>
+
+            <p class="helper-text">The plugin will automatically select or create the pairwise DID for this RP.</p>
+
+            <form id="sso-form">
+                <label for="idp-master-did">IdP Master DID</label>
+                <input id="idp-master-did" name="idp_master_did" type="text" placeholder="leave empty to use the registered IdP">
+
+                <button type="submit">Continue with DID registration</button>
+            </form>
+
+            <pre id="result"></pre>
+        </section>
+    </main>
+
+    <script>
+        const result = document.getElementById("result");
+
+        function show(value) {
+            result.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        }
+
+        document.getElementById("sso-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            try {
+                const response = await fetch("http://127.0.0.1:8771/sso/start", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        idpMasterDid: document.getElementById("idp-master-did").value.trim(),
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "DIDSSO could not be started");
+                }
+
+                show(data);
+                if (data.authorization_request_url) {
+                    window.location.href = data.authorization_request_url;
+                }
+            } catch (error) {
+                show(`DIDSSO could not be started: ${error.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

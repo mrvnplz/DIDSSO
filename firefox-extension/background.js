@@ -4,7 +4,10 @@ const DIDSSO_MESSAGE_TYPE_HEADER = "X-DIDSSO-Message-Type";
 const DIDSSO_SERVICE_HEADER = "X-DIDSSO-Service";
 const DIDSSO_REPLACE_ID_HEADER = "X-DIDSSO-Replace-ID";
 const DIDSSO_ERROR_HEADER = "X-DIDSSO-Error";
+const DIDSSO_STATE_HEADER = "X-DIDSSO-State";
 const REGISTER_PATH = "/register";
+const SSO_START_PATH = "/sso/start";
+const DID_LOGIN_START_PATH = "/did-login/start";
 const DID_SERVICE_URL = "http://127.0.0.1:8765";
 
 let selectedDid = "";
@@ -85,7 +88,7 @@ browser.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-// Selects or creates a DID when navigating between different services.
+// Selects an existing RP-bound DID when navigating between services.
 async function selectDidForService(origin) {
   await managementSettingsReady;
 
@@ -115,6 +118,43 @@ async function selectDidForService(origin) {
   } catch (error) {
     console.warn("Could not select DID for current service", error);
   }
+}
+
+async function boundDidForRp(origin) {
+  const response = await fetch(`${DID_SERVICE_URL}/wallet/select-for-service`, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ serviceOrigin: origin })
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not select the bound DID for this RP");
+  }
+  if (!data.selectedDid?.did) {
+    throw new Error("No pairwise DID is bound to this RP yet");
+  }
+
+  selectedDid = data.selectedDid.did;
+  await browser.storage.local.set({ selectedDid });
+  return selectedDid;
+}
+
+async function didForDirectLogin(origin) {
+  await managementSettingsReady;
+
+  if (automaticDidManagement) {
+    return boundDidForRp(origin);
+  }
+
+  const manualDid = await restoreSelectedDid();
+  if (!manualDid) {
+    throw new Error("No DID is selected for manual DID management");
+  }
+  return manualDid;
 }
 
 async function prepareDidForRp(origin) {
@@ -153,6 +193,42 @@ function headerValue(headers, name) {
   return header?.value || "";
 }
 
+function httpOrigin(value) {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.origin : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+async function rpOriginForRequest(details, serviceOrigin) {
+  for (const candidate of [
+    details.originUrl,
+    details.documentUrl,
+    details.initiator
+  ]) {
+    const origin = httpOrigin(candidate);
+    if (origin && origin !== serviceOrigin) {
+      return origin;
+    }
+  }
+
+  if (details.tabId >= 0) {
+    const tab = await browser.tabs.get(details.tabId);
+    const origin = httpOrigin(tab.url);
+    if (origin && origin !== serviceOrigin) {
+      return origin;
+    }
+  }
+
+  throw new Error("Could not determine the RP page origin for this SSO request");
+}
+
 async function rememberIdpOrigin(origin) {
   await managementSettingsReady;
   knownIdpOrigins.add(origin);
@@ -163,19 +239,20 @@ async function rememberIdpOrigin(origin) {
 
 async function beginSsoAuthentication(details, origin) {
   try {
-    const response = await fetch(`${DID_SERVICE_URL}/sso/current-challenge`, {
+    const response = await fetch(`${DID_SERVICE_URL}/sso/current-auth-request`, {
       headers: {"Accept": "application/json"}
     });
-    const challenge = await response.json();
+    const authRequest = await response.json();
 
-    if (!response.ok || !challenge.sessionId) {
+    if (!response.ok || !authRequest.sessionId) {
       return;
     }
 
     activeSsoAuthentication = {
       tabId: details.tabId,
       origin,
-      sessionId: challenge.sessionId
+      sessionId: authRequest.sessionId,
+      state: authRequest.state
     };
     await browser.storage.local.set({activeSsoAuthentication});
   } catch (error) {
@@ -215,6 +292,11 @@ async function monitorSsoCompletion(context) {
           await browser.tabs.update(context.tabId, {url: result.redirectUrl});
           return;
         }
+        if (result.status === "sso-retry-required") {
+          await clearSsoAuthentication();
+          await browser.tabs.update(context.tabId, {url: result.redirectUrl});
+          return;
+        }
         if (result.status === "sso-failed") {
           await clearSsoAuthentication();
           if (result.redirectUrl) {
@@ -247,6 +329,7 @@ async function handleAuthorizationCodeResponse(details) {
     details.responseHeaders,
     DIDSSO_ERROR_HEADER
   );
+  const state = headerValue(details.responseHeaders, DIDSSO_STATE_HEADER);
   const isAuthorizationCode =
     messageType === "authorization-code" && Boolean(code);
   const isAuthorizationError =
@@ -266,10 +349,11 @@ async function handleAuthorizationCodeResponse(details) {
   if (
     !context ||
     context.tabId !== details.tabId ||
-    context.origin !== url.origin
+    context.origin !== url.origin ||
+    context.state !== state
   ) {
     console.error(
-      "DIDSSO authorization code rejected because it does not match the active authentication tab and origin"
+      "DIDSSO authorization response rejected because its tab, origin, or state does not match the active request"
     );
     return;
   }
@@ -294,11 +378,11 @@ async function handleAuthorizationCodeResponse(details) {
       body: JSON.stringify({
         code,
         error: authorizationError,
+        state,
         replaceId: headerValue(
           details.responseHeaders,
           DIDSSO_REPLACE_ID_HEADER
         ),
-        authenticationOrigin: context.origin,
         sessionId: context.sessionId
       })
     });
@@ -347,28 +431,40 @@ browser.webRequest.onCompleted.addListener(
   { urls: ["http://127.0.0.1/*", "https://127.0.0.1/*"], types: ["main_frame"] }
 );
 
-// adds did header to register request at IdP
+// Resolves and attaches the applicable DID when an authenticated flow starts.
 browser.webRequest.onBeforeSendHeaders.addListener(
   async (details) => {
     const url = new URL(details.url);
 
+    const startsSso = details.method === "POST" && url.pathname === SSO_START_PATH;
+    const startsDidLogin =
+      details.method === "POST" && url.pathname === DID_LOGIN_START_PATH;
+    const registers = details.method === "POST" && url.pathname === REGISTER_PATH;
     if (
-      details.method !== "POST" ||
       url.hostname !== "127.0.0.1" ||
-      url.pathname !== REGISTER_PATH
+      (!startsSso && !startsDidLogin && !registers)
     ) {
       return {};
     }
 
     await managementSettingsReady;
-    if (knownIdpOrigins.has(url.origin)) {
+    if (registers && knownIdpOrigins.has(url.origin)) {
       return {};
     }
 
+    let didForRequest;
     try {
-      await prepareDidForRp(url.origin);
+      const rpOrigin = startsSso || startsDidLogin
+        ? await rpOriginForRequest(details, url.origin)
+        : url.origin;
+      didForRequest = startsDidLogin
+        ? await didForDirectLogin(rpOrigin)
+        : await prepareDidForRp(rpOrigin);
     } catch (error) {
-      console.error("DID registration request blocked", error);
+      console.error("DIDSSO request blocked", error);
+      if (startsDidLogin) {
+        return {};
+      }
       return { cancel: true };
     }
 
@@ -378,7 +474,7 @@ browser.webRequest.onBeforeSendHeaders.addListener(
 
     requestHeaders.push({
       name: DID_HEADER,
-      value: selectedDid,
+      value: didForRequest,
     });
 
     return { requestHeaders };

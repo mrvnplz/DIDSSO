@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from did_peer_4_service import create_and_store_did, list_public_records
-from didcomm_service import pack_encrypted_message, unpack_message
 from sso_service import (
     authorization_error_redirect,
-    clear_current_challenge,
+    clear_current_auth_request,
     forward_https_authorization_code,
-    load_current_challenge,
+    load_current_auth_request,
     load_sso_result,
     receive_didcomm_message,
-    store_sso_challenge,
+    store_sso_auth_request,
 )
 from wallet_state_service import (
     ensure_data_storage,
@@ -24,8 +24,8 @@ from wallet_state_service import (
 )
 
 
-HOST = "127.0.0.1"
-PORT = 8765
+HOST = os.environ.get("DIDSSO_BIND_HOST", "127.0.0.1")
+PORT = int(os.environ.get("DIDSSO_PORT", "8765"))
 
 class DidPeerRequestHandler(BaseHTTPRequestHandler):
     def end_headers(self) -> None:
@@ -54,12 +54,6 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_redirect(self, location: str) -> None:
-        self.send_response(303)
-        self.send_header("Location", location)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
     def is_plugin_request(self) -> bool:
         origin = self.headers.get("Origin", "")
         return not origin or origin.startswith("moz-extension://")
@@ -80,11 +74,14 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
                 return
 
             case "/sso/selected-did":
-                self.send_json(200, selected_did_record())
+                try:
+                    self.send_json(200, selected_did_record())
+                except ValueError as error:
+                    self.send_json(409, {"error": str(error)})
                 return
 
-            case "/sso/current-challenge":
-                self.send_json(200, load_current_challenge())
+            case "/sso/current-auth-request":
+                self.send_json(200, load_current_auth_request())
                 return
 
             case _ if parsed.path == "/sso/result":
@@ -96,16 +93,6 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
                     return
                 session_id = parse_qs(parsed.query).get("session_id", [""])[0]
                 self.send_json(200, load_sso_result(session_id))
-                return
-
-            case "/sso/continue":
-                challenge = load_current_challenge()
-                redirect_url = challenge.get("redirectUrl")
-                if not redirect_url:
-                    self.send_json(404, {"error": "No active SSO redirect found"})
-                    return
-
-                self.send_redirect(redirect_url)
                 return
 
             case _:
@@ -153,35 +140,14 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
                         automatic=bool(request.get("automatic", True)),
                         selected_did=str(request.get("selectedDid", "")),
                     )
-                    clear_current_challenge()
+                    clear_current_auth_request()
                     self.send_json(200, prepared)
-                case "/didcomm/pack-encrypted":
-                    self.send_json(
-                        200,
-                        pack_encrypted_message(
-                            sender_did=request["from"],
-                            recipient_did=request["to"],
-                            body=request["body"],
-                            message_type=request.get(
-                                "type",
-                                "https://didcomm.org/basicmessage/2.0/message",
-                            ),
-                        ),
-                    )
-                case "/sso/store-challenge":
-                    self.send_json(200, store_sso_challenge(request))
+                case "/sso/store-auth-request":
+                    self.send_json(200, store_sso_auth_request(request))
                 case "/sso/authorization-code":
                     self.send_json(202, forward_https_authorization_code(request))
                 case "/sso/authorization-error":
                     self.send_json(200, authorization_error_redirect(request))
-                case "/didcomm/unpack":
-                    self.send_json(
-                        200,
-                        unpack_message(
-                            request["packedMessage"],
-                            request.get("senderDid", ""),
-                        ),
-                    )
                 case "/didcomm/inbox":
                     self.send_json(
                         200,

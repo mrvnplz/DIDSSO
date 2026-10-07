@@ -1,0 +1,4 @@
+cryptography>=42.0.0
+Authlib @ git+https://github.com/mrvnplz/authlib.git@bc047b813749a9fd7e49ab04f2351e9cfbcfc4a3
+didcomm==0.3.2
+did-peer-4 @ git+https://github.com/decentralized-identity/did-peer-4.git@1c95404a7b6787001a86ce7e5a36254c9688ac0f

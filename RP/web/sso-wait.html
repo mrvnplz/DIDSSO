@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DID SSO</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <main>
+        <section class="login-panel">
+            <h1>Completing DIDSSO</h1>
+            <p class="helper-text" id="status">Waiting for the IdP response.</p>
+        </section>
+    </main>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get("session_id");
+        const status = document.getElementById("status");
+        const authorizationError = params.get("error");
+
+        async function poll() {
+            const response = await fetch(`http://127.0.0.1:8771/sso/session?session_id=${encodeURIComponent(sessionId)}`);
+            const session = await response.json();
+
+            if (session.status === "logged_in") {
+                status.textContent = "Login complete.";
+                window.location.href = `/user?session_id=${encodeURIComponent(sessionId)}`;
+                return;
+            }
+
+            if (session.status === "failed") {
+                status.textContent = session.error || "The IdP rejected the SSO request.";
+                return;
+            }
+
+            status.textContent = `Current status: ${session.status || "unknown"}`;
+            window.setTimeout(poll, 1200);
+        }
+
+        if (authorizationError === "access_denied") {
+            status.textContent = "You must consent to sharing the requested data to use this service.";
+        } else {
+            poll().catch((error) => {
+                status.textContent = `SSO status check failed: ${error.message}`;
+            });
+        }
+    </script>
+</body>
+</html>

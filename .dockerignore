@@ -1,0 +1,30 @@
+.git
+.gitignore
+.gitattributes
+.env
+.env.*
+!.env.example
+
+**/.venv
+**/.venv-*
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/target
+**/artifacts
+/zk-stark
+/benchmark-results
+
+# Runtime state, identities, private keys, receipts and user data must not be
+# copied into distributable images.
+IdP/*.json
+IdP/didcomm-backend/wallet.json
+RP/*.json
+RP/didcomm-backend/wallet.json
+firefox-extension/data/*.json
+zk-risc0/*.json
+zk-stark/*.json
+
+*.log
+*.receipt
+*.proof

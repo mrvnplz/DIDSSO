@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RP Administration</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        fieldset {
+            display: grid;
+            gap: 10px;
+            margin: 8px 0;
+            padding: 14px;
+            border: 1px solid #cbd5e1;
+        }
+        fieldset label {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            font-weight: 400;
+        }
+        fieldset input {
+            width: auto;
+        }
+        .scope-description {
+            display: grid;
+            gap: 3px;
+        }
+        .scope-description small {
+            color: #64748b;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <main class="two-column-layout">
+        <section class="login-panel">
+            <h1>Registration with IdP</h1>
+
+            <form id="rp-register-form">
+                <label for="rp-name">RP name</label>
+                <input id="rp-name" name="rpName" type="text" value="Demo RP" required>
+
+                <label for="idp-master-did">IdP Master DID</label>
+                <input id="idp-master-did" name="idpMasterDid" type="text" required>
+
+                <button type="submit">Send register request</button>
+            </form>
+
+            <pre id="result" class="helper-text"></pre>
+
+            <button id="reload-registrations" type="button">Reload requests</button>
+
+            <section class="admin-list-section">
+                <h2>Open requests</h2>
+                <div id="pending-requests" class="admin-list"></div>
+            </section>
+
+            <section class="admin-list-section">
+                <h2>Accepted requests</h2>
+                <div id="accepted-requests" class="admin-list"></div>
+            </section>
+
+            <section class="admin-list-section">
+                <h2>Rejected requests</h2>
+                <div id="rejected-requests" class="admin-list"></div>
+            </section>
+
+        </section>
+
+        <section class="login-panel">
+            <h1>Requested user data</h1>
+            <p class="helper-text">These standard scopes are sent with every future authorization request. Changes do not require a new IdP registration.</p>
+
+            <form id="scope-config-form">
+                <fieldset>
+                    <legend>Authorization scopes</legend>
+                    <label>
+                        <input type="checkbox" name="scope" value="profile">
+                        <span class="scope-description">
+                            <strong>profile</strong>
+                            <small>Full name, preferred username, and birthdate</small>
+                        </span>
+                    </label>
+                    <label>
+                        <input type="checkbox" name="scope" value="email">
+                        <span class="scope-description">
+                            <strong>email</strong>
+                            <small>Email address</small>
+                        </span>
+                    </label>
+                </fieldset>
+
+                <button type="submit">Save authorization scopes</button>
+            </form>
+            <p id="scope-config-result" class="helper-text"></p>
+        </section>
+    </main>
+
+    <script>
+        const registrationForm = document.getElementById("rp-register-form");
+        const scopeConfigForm = document.getElementById("scope-config-form");
+        const scopeConfigResult = document.getElementById("scope-config-result");
+        const result = document.getElementById("result");
+        const reloadButton = document.getElementById("reload-registrations");
+        const backendUrl = "http://127.0.0.1:8771";
+
+        function shortDid(did) {
+            if (!did || did.length <= 38) {
+                return did || "";
+            }
+
+            return `${did.slice(0, 24)}...${did.slice(-10)}`;
+        }
+
+        function renderRegistrations(containerId, registrations, emptyText, statusText) {
+            const container = document.getElementById(containerId);
+            container.replaceChildren();
+
+            if (!registrations.length) {
+                const empty = document.createElement("p");
+                empty.className = "helper-text";
+                empty.textContent = emptyText;
+                container.appendChild(empty);
+                return;
+            }
+
+            registrations.forEach((registration) => {
+                const article = document.createElement("article");
+                article.className = "admin-list-item";
+
+                const row = document.createElement("div");
+                row.className = "did-row";
+
+                const title = document.createElement("strong");
+                title.title = registration.idp_master_did || "";
+                title.textContent = shortDid(registration.idp_master_did);
+
+                const copyButton = document.createElement("button");
+                copyButton.className = "copy-button";
+                copyButton.type = "button";
+                copyButton.textContent = "Copy";
+                copyButton.addEventListener("click", async () => {
+                    await navigator.clipboard.writeText(registration.idp_master_did || "");
+                    copyButton.textContent = "Copied";
+                    setTimeout(() => {
+                        copyButton.textContent = "Copy";
+                    }, 1200);
+                });
+
+                const status = document.createElement("span");
+                status.textContent = statusText(registration);
+
+                row.append(title, copyButton);
+                article.append(row, status);
+                container.appendChild(article);
+            });
+        }
+
+        async function loadRegistrations() {
+            let data;
+            try {
+                const response = await fetch(`${backendUrl}/rp/registrations`);
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${text.slice(0, 120)}`);
+                }
+                data = await response.json();
+                if (result.textContent.startsWith("DIDComm backend")) {
+                    result.textContent = "";
+                }
+            } catch (error) {
+                data = { pending: [], accepted: [], rejected: [] };
+                result.textContent = `DIDComm backend error: ${error.message}`;
+            }
+
+            renderRegistrations(
+                "pending-requests",
+                data.pending || [],
+                "No open requests.",
+                (registration) => `Sent: ${registration.sent_at || "unknown"}`
+            );
+            renderRegistrations(
+                "accepted-requests",
+                data.accepted || [],
+                "No accepted requests yet.",
+                (registration) => {
+                    const pairwiseDid = shortDid(registration.rp_pairwise_did);
+                    return `Accepted: ${registration.accepted_at || "unknown"}; RP pairwise DID: ${pairwiseDid || "not created"}`;
+                }
+            );
+            renderRegistrations(
+                "rejected-requests",
+                data.rejected || [],
+                "No rejected requests.",
+                (registration) => `Rejected: ${registration.rejected_at || "unknown"}`
+            );
+        }
+
+        async function loadScopeConfig() {
+            const response = await fetch(`${backendUrl}/rp/authorization-config`);
+            const config = await response.json();
+            if (!response.ok) {
+                throw new Error(config.error || "Could not load authorization scopes.");
+            }
+            const selectedScopes = new Set(config.scopes || []);
+            for (const checkbox of scopeConfigForm.elements.scope) {
+                checkbox.checked = selectedScopes.has(checkbox.value);
+            }
+        }
+
+        registrationForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            result.textContent = "Sending...";
+
+            const formData = new FormData(registrationForm);
+            const payload = Object.fromEntries(formData.entries());
+            const response = await fetch(`${backendUrl}/rp/register-at-idp`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const json = await response.json();
+            result.textContent = JSON.stringify(json, null, 2);
+            await loadRegistrations();
+        });
+
+        scopeConfigForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            scopeConfigResult.textContent = "Saving...";
+            const scopes = new FormData(scopeConfigForm).getAll("scope");
+            const response = await fetch(`${backendUrl}/rp/authorization-config`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({scopes}),
+            });
+            const config = await response.json();
+            scopeConfigResult.textContent = response.ok
+                ? `Saved: ${(config.scopes || []).join(" ") || "no optional scopes"}`
+                : (config.error || "Could not save authorization scopes.");
+        });
+
+        reloadButton.addEventListener("click", loadRegistrations);
+
+        loadRegistrations();
+        loadScopeConfig().catch((error) => {
+            scopeConfigResult.textContent = error.message;
+        });
+    </script>
+</body>
+</html>

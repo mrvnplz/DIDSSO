@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RP Login</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <a class="admin-link" href="/admin">Admin</a>
+    <main>
+        <section class="login-panel">
+            <h1>RP Login</h1>
+            <p class="helper-text">Use DID Registration to authorize access. Later, DID Login uses your existing binding and retrieves your latest profile data without another proof.</p>
+
+            <a class="sso-button" href="/did-sso">DID Registration</a>
+            <button id="did-login-button" type="button" class="secondary-button">DID Login</button>
+            <p class="helper-text" id="did-login-status"></p>
+        </section>
+    </main>
+
+    <script>
+        const didLoginButton = document.getElementById("did-login-button");
+        const didLoginStatus = document.getElementById("did-login-status");
+
+        didLoginButton.addEventListener("click", async () => {
+            didLoginButton.disabled = true;
+            didLoginStatus.textContent = "Sending DID challenge...";
+
+            try {
+                const response = await fetch("http://127.0.0.1:8771/did-login/start", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({}),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "DID login failed");
+                }
+                window.location.href = `/sso/wait?session_id=${encodeURIComponent(data.session_id)}`;
+            } catch (error) {
+                didLoginStatus.textContent = error.message;
+                didLoginButton.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

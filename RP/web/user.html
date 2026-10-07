@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RP User</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <main class="two-column-layout">
+        <section class="login-panel">
+            <h1>Logged in</h1>
+            <p class="helper-text">You are signed in with DIDSSO.</p>
+
+            <section class="admin-list-section">
+                <h2>Shared user data</h2>
+                <div id="claims" class="admin-list"></div>
+            </section>
+
+            <section class="admin-list-section">
+                <h2>Local RP account</h2>
+                <div class="admin-list-item">
+                    <strong>Identifier</strong>
+                    <span id="account-identifier"></span>
+                </div>
+            </section>
+        </section>
+
+        <section class="login-panel user-actions-panel">
+            <h1>Account data</h1>
+            <section class="admin-list-section">
+                <h2>Saved text</h2>
+                <textarea id="notes" rows="8" placeholder="Write something here..."></textarea>
+                <button id="save-notes" type="button">Save text</button>
+                <p class="helper-text" id="save-status"></p>
+            </section>
+
+            <section class="admin-list-section">
+                <button id="logout" type="button" class="logout-button">Log out</button>
+                <p class="helper-text" id="logout-status"></p>
+            </section>
+        </section>
+    </main>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get("session_id");
+        const claimsElement = document.getElementById("claims");
+        const identifierElement = document.getElementById("account-identifier");
+        const notesElement = document.getElementById("notes");
+        const saveStatusElement = document.getElementById("save-status");
+        const logoutStatusElement = document.getElementById("logout-status");
+
+        function renderClaims(claims) {
+            claimsElement.replaceChildren();
+            for (const [name, value] of Object.entries(claims || {})) {
+                const item = document.createElement("div");
+                const label = document.createElement("strong");
+                const content = document.createElement("span");
+                item.className = "admin-list-item";
+                label.textContent = name;
+                content.textContent = String(value);
+                item.append(label, content);
+                claimsElement.appendChild(item);
+            }
+        }
+
+        async function loadSession() {
+            const response = await fetch(`http://127.0.0.1:8771/sso/session?session_id=${encodeURIComponent(sessionId)}`);
+            const session = await response.json();
+            if (session.status === "logged_out") {
+                window.location.replace("/");
+                return;
+            }
+            if (session.status !== "logged_in") {
+                throw new Error(session.error || "Session is not logged in.");
+            }
+
+            const accountResponse = await fetch(`http://127.0.0.1:8771/sso/account?session_id=${encodeURIComponent(sessionId)}`);
+            const account = await accountResponse.json();
+            if (!accountResponse.ok) {
+                throw new Error(account.error || "Could not load the RP account.");
+            }
+            renderClaims(account.claims);
+            identifierElement.textContent = account.identifier || "";
+            notesElement.value = account.notes || "";
+        }
+
+        document.getElementById("save-notes").addEventListener("click", async () => {
+            saveStatusElement.textContent = "Saving...";
+            const response = await fetch("http://127.0.0.1:8771/sso/account/notes", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    sessionId,
+                    notes: notesElement.value,
+                }),
+            });
+            const data = await response.json();
+            saveStatusElement.textContent = response.ok ? "Saved." : (data.error || "Could not save.");
+        });
+
+        document.getElementById("logout").addEventListener("click", async () => {
+            logoutStatusElement.textContent = "Logging out...";
+            try {
+                const response = await fetch("http://127.0.0.1:8771/sso/logout", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({sessionId}),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Logout failed.");
+                }
+                window.location.replace("/");
+            } catch (error) {
+                logoutStatusElement.textContent = error.message;
+            }
+        });
+
+        loadSession().catch((error) => {
+            logoutStatusElement.textContent = error.message;
+        });
+    </script>
+</body>
+</html>

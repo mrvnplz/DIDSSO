@@ -57,7 +57,7 @@ def decode_multikey_public_key(multikey: str, expected_prefix: bytes) -> bytes:
 def key_id(did: str, fragment: str) -> str:
     return f"{did}#{fragment}"
 
-
+# stellt sicher, dass die long-form vorhanden ist
 def require_long_form_did(did: str) -> str:
     peer_4_prefix = "did:peer:4"
     encoded_parts = did.removeprefix(peer_4_prefix).split(":", maxsplit=1)
@@ -204,6 +204,8 @@ def pack_encrypted_message(
     recipient_did: str,
     body: dict,
     message_type: str = "https://didcomm.org/basicmessage/2.0/message",
+    message_id: str | None = None,
+    thread_id: str | None = None,
 ) -> dict:
     require_long_form_did(sender_did)
     require_long_form_did(recipient_did)
@@ -214,6 +216,8 @@ def pack_encrypted_message(
         frm=sender_did,
         to=[recipient_did],
         body=body,
+        id=message_id,
+        thid=thread_id,
     )
     result = asyncio.run(
         pack_encrypted(
@@ -250,3 +254,11 @@ def unpack_message(packed_message: dict | str, sender_did: str = "") -> dict:
         "message": result.message.as_dict() if hasattr(result.message, "as_dict") else result.message,
         "metadata": json.loads(json.dumps(asdict(result.metadata), default=str)),
     }
+
+
+def message_thread_id(message: dict) -> str:
+    message_id = str(message.get("id", "")).strip()
+    thread_id = str(message.get("thid") or message_id).strip()
+    if not message_id or not thread_id:
+        raise ValueError("DIDComm message has no message or thread ID")
+    return thread_id

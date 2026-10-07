@@ -1,8 +1,4 @@
 - rp deregistering, die credentials bleiben aktuell bestehen
-- ist user page bei IdP echt?
-
-- rp data request und user consent
-- rp fragt exakt die claims ab, die angemeldet sind
 
 - replacement ist nicht automatisierbar über den IdP. Der IdP weiss bei der authentifizierung nicht, um welchen RP es geht und dementsprechend auch nicht prüfbar ob short did existiert.
 
@@ -12,4 +8,8 @@
 - http nachrichten bei direct login
 
 
-- doppelte account erstellung sollte nciht möglich sein
+- Müssen die Nutzerdaten Bei jedem Login Aktualisiert werden vom IDP? Falls ja dann ist das Direkte Login Nicht geeignet
+
+- RP braucht https
+
+- access token für updaten der user info bei did login

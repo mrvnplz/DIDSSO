@@ -1,0 +1,49 @@
+diff --git a/stwo_cairo_prover/crates/adapter/src/adapter.rs b/stwo_cairo_prover/crates/adapter/src/adapter.rs
+index ee3ef28c..3f312177 100644
+--- a/stwo_cairo_prover/crates/adapter/src/adapter.rs
++++ b/stwo_cairo_prover/crates/adapter/src/adapter.rs
+@@ -11 +11 @@ use crate::{PublicSegmentContext, StateTransitions};
+-pub fn adapt(runner: &CairoRunner) -> Result<ProverInput> {
++pub fn adapt(runner: &CairoRunner, public_segment_context: PublicSegmentContext) -> Result<ProverInput> {
+@@ -19 +19 @@ pub fn adapt(runner: &CairoRunner) -> Result<ProverInput> {
+-    let builtin_segments = runner.get_builtin_segments();
++    let builtin_segment_map = runner.get_builtin_segments();
+@@ -22 +22 @@ pub fn adapt(runner: &CairoRunner) -> Result<ProverInput> {
+-    BuiltinSegments::pad_relocatble_builtin_segments(&mut relocatable_memory, &builtin_segments);
++    BuiltinSegments::pad_relocatble_builtin_segments(&mut relocatable_memory, &builtin_segment_map);
+@@ -30 +30 @@ pub fn adapt(runner: &CairoRunner) -> Result<ProverInput> {
+-    let builtin_segments = relocator.relocate_builtin_segments(&builtin_segments);
++    let builtin_segments = relocator.relocate_builtin_segments(&builtin_segment_map);
+@@ -44,3 +43,0 @@ pub fn adapt(runner: &CairoRunner) -> Result<ProverInput> {
+-    // TODO(Ohad): take this from the input.
+-    let public_segment_context = PublicSegmentContext::bootloader_context();
+-
+diff --git a/stwo_cairo_prover/crates/adapter/src/opcodes.rs b/stwo_cairo_prover/crates/adapter/src/opcodes.rs
+index 85d991d0..93a9ab27 100644
+--- a/stwo_cairo_prover/crates/adapter/src/opcodes.rs
++++ b/stwo_cairo_prover/crates/adapter/src/opcodes.rs
+@@ -751 +751 @@ mod mappings_tests {
+-    use crate::{casm_state, relocated_trace_entry, ProverInput};
++    use crate::{casm_state, relocated_trace_entry, ProverInput, PublicSegmentContext};
+@@ -769 +769,5 @@ mod mappings_tests {
+-        adapt(&runner).expect("Adapter failed")
++        let public_segment_context = PublicSegmentContext::new(
++            &program.iter_builtins().cloned().collect::<Vec<_>>(),
++        );
++
++        adapt(&runner, public_segment_context).expect("Adapter failed")
+diff --git a/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs b/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs
+index 22b447e2..cd738448 100644
+--- a/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs
++++ b/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs
+@@ -19 +19 @@ use stwo_cairo_adapter::adapter::adapt;
+-use stwo_cairo_adapter::ProverInput;
++use stwo_cairo_adapter::{ProverInput, PublicSegmentContext};
+@@ -79,0 +80,4 @@ pub fn run_and_adapt(
++    let public_segment_context = PublicSegmentContext::new(
++        &program.iter_builtins().cloned().collect::<Vec<_>>(),
++    );
++
+@@ -85 +89 @@ pub fn run_and_adapt(
+-    )?)
++    )?, public_segment_context)
