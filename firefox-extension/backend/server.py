@@ -2,8 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+WORKSPACE_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(WORKSPACE_DIR))
+
+from evaluation_trace import (
+    clear_measurements,
+    evaluation_enabled,
+    measurements_for,
+    record_event,
+)
 
 from did_peer_4_service import create_and_store_did, list_public_records
 from sso_service import (
@@ -60,6 +72,22 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/evaluation/measurements":
+            if not evaluation_enabled():
+                self.send_error(404, "Not Found")
+                return
+            session_id = parse_qs(parsed.query).get("session_id", [""])[0]
+            self.send_json(
+                200,
+                {
+                    "enabled": True,
+                    "component": "wallet",
+                    "session_id": session_id,
+                    "events": measurements_for(session_id),
+                },
+            )
+            return
+
         match self.path:
             case "/dids":
                 origin = self.headers.get("Origin", "")
@@ -101,6 +129,39 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
             request = self.read_json_body()
+
+            if self.path in {
+                "/evaluation/event",
+                "/evaluation/measurements/clear",
+            } and not self.is_plugin_request():
+                self.send_json(
+                    403,
+                    {"error": "Evaluation events are only accepted from the plugin"},
+                )
+                return
+
+            if self.path == "/evaluation/event":
+                if not evaluation_enabled():
+                    self.send_error(404, "Not Found")
+                    return
+                event = str(request.get("event", ""))
+                if event != "extension_result_detected":
+                    raise ValueError("Unsupported evaluation event")
+                record_event(
+                    str(request.get("session_id", "")),
+                    event,
+                    timestamp_epoch_ms=request.get("timestamp_epoch_ms"),
+                )
+                self.send_json(202, {"status": "recorded"})
+                return
+
+            if self.path == "/evaluation/measurements/clear":
+                if not evaluation_enabled():
+                    self.send_error(404, "Not Found")
+                    return
+                clear_measurements(str(request.get("session_id", "")))
+                self.send_json(200, {"status": "cleared"})
+                return
 
             if self.path in {
                 "/create-did",

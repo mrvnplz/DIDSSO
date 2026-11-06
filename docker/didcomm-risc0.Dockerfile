@@ -71,6 +71,7 @@ RUN apt-get update \
 COPY --from=python-dependencies /opt/venv /opt/venv
 COPY --from=risc0-builder /artifacts/credential-risc0 /usr/local/bin/credential-risc0
 COPY sso_claims.py /app/sso_claims.py
+COPY evaluation_trace.py /app/evaluation_trace.py
 COPY zk-risc0/credential_risc0.py /app/zk-risc0/credential_risc0.py
 
 ENV PATH=/opt/venv/bin:${PATH} \

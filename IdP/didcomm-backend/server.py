@@ -6,19 +6,19 @@ import hmac
 import os
 import signal
 import sys
+import time
 import uuid
-import base64
 import secrets
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from did_peer_4 import resolve as resolve_peer_4
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
@@ -27,6 +27,13 @@ sys.path.append(str(WORKSPACE_DIR / "zk-stark"))
 sys.path.append(str(WORKSPACE_DIR / "zk-risc0"))
 
 from sso_claims import claims_for_scopes, normalize_scopes
+from evaluation_trace import (
+    clear_measurements,
+    elapsed_seconds,
+    evaluation_enabled,
+    measurements_for,
+    record_event,
+)
 
 PROOF_BACKEND = os.environ.get("DIDSSO_PROOF_BACKEND", "risc0").strip().lower()
 if PROOF_BACKEND == "stwo":
@@ -66,13 +73,13 @@ STWO_REGISTRATION_SIGNING_KEY_FILE = DATA_DIR / "registration_signing_key.json"
 RISC0_REGISTRATION_SIGNING_KEY_FILE = (
     DATA_DIR / "registration_signing_key_risc0_p256.json"
 )
-CLAIMS_TOKEN_SIGNING_KEY_FILE = DATA_DIR / "claims_token_signing_key.json"
-
 REGISTER_REQUEST_TYPE = "https://did-sso.local/protocol/rp-registration/1.0/request"
 ACCEPTED_TYPE = "https://did-sso.local/protocol/rp-registration/1.0/accepted"
 REJECTED_TYPE = "https://did-sso.local/protocol/rp-registration/1.0/rejected"
 SSO_CODE_EXCHANGE_TYPE = "https://did-sso.local/protocol/sso/1.0/code-exchange"
-SSO_CLAIMS_TOKEN_TYPE = "https://did-sso.local/protocol/sso/1.0/claims-token"
+SSO_AUTHORIZATION_RESPONSE_TYPE = (
+    "https://did-sso.local/protocol/sso/1.0/authorization-response"
+)
 SSO_CLAIMS_REQUEST_TYPE = "https://did-sso.local/protocol/sso/1.0/claims-request"
 SSO_CLAIMS_RESPONSE_TYPE = "https://did-sso.local/protocol/sso/1.0/claims-response"
 SSO_TOKEN_REFRESH_TYPE = "https://did-sso.local/protocol/sso/1.0/token-refresh"
@@ -194,55 +201,6 @@ def authcrypt_sender_did(unpacked: dict) -> str:
     if not sender_key or sender_key.rpartition("#")[0] != sender_did:
         raise PermissionError("DIDComm sender DID does not match the authenticated key")
     return sender_did
-
-
-def base64url_json(value: dict) -> str:
-    raw = json.dumps(value, separators=(",", ":")).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-
-def load_or_create_claims_token_signing_key() -> tuple[Ed25519PrivateKey, str]:
-    if CLAIMS_TOKEN_SIGNING_KEY_FILE.exists():
-        stored = load_json(CLAIMS_TOKEN_SIGNING_KEY_FILE, {})
-        private_bytes = base64.urlsafe_b64decode(stored["private_key"] + "==")
-    else:
-        private_bytes = secrets.token_bytes(32)
-        CLAIMS_TOKEN_SIGNING_KEY_FILE.write_text(
-            json.dumps(
-                {
-                    "algorithm": "Ed25519",
-                    "private_key": base64.urlsafe_b64encode(private_bytes)
-                    .decode("ascii")
-                    .rstrip("="),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-    private_key = Ed25519PrivateKey.from_private_bytes(private_bytes)
-    public_bytes = private_key.public_key().public_bytes_raw()
-    public_key = base64.urlsafe_b64encode(public_bytes).decode("ascii").rstrip("=")
-    return private_key, public_key
-
-
-def signed_claims_token(claims: dict, audience: str, issuer: str, nonce: str) -> str:
-    private_key, public_key = load_or_create_claims_token_signing_key()
-    key_id = hashlib.sha256(public_key.encode("ascii")).hexdigest()[:16]
-    header = {"alg": "EdDSA", "typ": "JWT", "kid": key_id}
-    issued_at = int(datetime.now(timezone.utc).timestamp())
-    payload = {
-        "iss": issuer,
-        "aud": audience,
-        "iat": issued_at,
-        "exp": issued_at + CODE_LIFETIME_SECONDS,
-        "nonce": nonce,
-        **claims,
-    }
-    signing_input = f"{base64url_json(header)}.{base64url_json(payload)}"
-    signature = base64.urlsafe_b64encode(
-        private_key.sign(signing_input.encode("ascii"))
-    ).decode("ascii").rstrip("=")
-    return f"{signing_input}.{signature}"
 
 
 def find_user_by_email(email: str) -> dict | None:
@@ -367,12 +325,6 @@ def current_grant_claims(grant: dict, request_id: str) -> dict:
     idp_master_did = did_named("idp-master")
     return {
         "request_id": request_id,
-        "claims_token": signed_claims_token(
-            claims=claims,
-            audience=grant["rp_pairwise_did"],
-            issuer=idp_master_did,
-            nonce=request_id,
-        ),
         "claims": claims,
         "idp_master_did": idp_master_did,
     }
@@ -440,7 +392,7 @@ def rotate_refresh_token(rp_pairwise_did: str, request: dict) -> dict:
         ):
             raise PermissionError("Refresh token is invalid or expired")
 
-        # Resolve and sign before committing the one-time rotation.
+        # Resolve the current claims before committing the one-time rotation.
         body = current_grant_claims(grant, request_id)
         access_token = new_opaque_token()
         refresh_token = new_opaque_token()
@@ -799,11 +751,30 @@ def exchange_sso_code(rp_pairwise_did: str, request: dict, thread_id: str) -> No
         raise ValueError("Authorization state does not match the issued code")
 
     verifier = registration_verifier_config(registration_signing_key_file())
-    verification = verify_registration_proof(
-        request["proof"],
-        expected_nonce=code_record["nonce"],
-        expected_public_key=verifier["idp_public_key"],
-        expected_program_fingerprint=verifier.get("program_fingerprint", ""),
+    verification_started_ns = time.perf_counter_ns()
+    try:
+        verification = verify_registration_proof(
+            request["proof"],
+            expected_nonce=code_record["nonce"],
+            expected_public_key=verifier["idp_public_key"],
+            expected_program_fingerprint=verifier.get("program_fingerprint", ""),
+        )
+    except Exception:
+        record_event(
+            request.get("session_id", ""),
+            "proof_verification",
+            duration_seconds=elapsed_seconds(verification_started_ns),
+            details={"backend": PROOF_BACKEND, "outcome": "error"},
+        )
+        raise
+    record_event(
+        request.get("session_id", ""),
+        "proof_verification",
+        duration_seconds=elapsed_seconds(verification_started_ns),
+        details={
+            "backend": PROOF_BACKEND,
+            "outcome": "accepted" if verification.get("accepted") else "rejected",
+        },
     )
     if not verification.get("accepted"):
         raise ValueError(
@@ -848,17 +819,17 @@ def exchange_sso_code(rp_pairwise_did: str, request: dict, thread_id: str) -> No
         else:
             store_user_did_link(code_record, request, rp_pairwise_did)
 
-    claims_token = signed_claims_token(
-        claims=code_record.get("claims", {}),
-        audience=rp_pairwise_did,
-        issuer=code_record["idp_master_did"],
-        nonce=code_record["nonce"],
-    )
+    token_issuance_started_ns = time.perf_counter_ns()
     tokens = issue_token_grant(code_record, rp_pairwise_did)
+    record_event(
+        request.get("session_id", ""),
+        "token_issuance",
+        duration_seconds=elapsed_seconds(token_issuance_started_ns),
+    )
     current_grant_id = tokens.pop("grant_id")
     body = {
         "session_id": request["session_id"],
-        "claims_token": claims_token,
+        "nonce": code_record["nonce"],
         "claims": code_record.get("claims", {}),
         "idp_master_did": code_record["idp_master_did"],
         **tokens,
@@ -874,7 +845,7 @@ def exchange_sso_code(rp_pairwise_did: str, request: dict, thread_id: str) -> No
         sender_did=code_record["idp_master_did"],
         recipient_did=rp_pairwise_did,
         body=body,
-        message_type=SSO_CLAIMS_TOKEN_TYPE,
+        message_type=SSO_AUTHORIZATION_RESPONSE_TYPE,
         thread_id=thread_id,
     )
     post_json(
@@ -999,6 +970,24 @@ class IdpDidCommHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/evaluation/measurements":
+            if not evaluation_enabled():
+                self.send_error(404, "Not Found")
+                return
+            session_id = parse_qs(parsed.query).get("session_id", [""])[0]
+            self.send_json(
+                200,
+                {
+                    "enabled": True,
+                    "component": "idp",
+                    "proof_backend": PROOF_BACKEND,
+                    "session_id": session_id,
+                    "events": measurements_for(session_id),
+                },
+            )
+            return
+
         if self.path == "/dids":
             self.send_json(200, list_public_records())
             return
@@ -1016,6 +1005,14 @@ class IdpDidCommHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
             request = self.read_json_body()
+
+            if self.path == "/evaluation/measurements/clear":
+                if not evaluation_enabled():
+                    self.send_error(404, "Not Found")
+                    return
+                clear_measurements(str(request.get("session_id", "")))
+                self.send_json(200, {"status": "cleared"})
+                return
 
             if self.path == "/create-did":
                 self.send_json(200, create_and_store_did(str(request.get("name", ""))))
@@ -1177,8 +1174,6 @@ class IdpDidCommHandler(BaseHTTPRequestHandler):
                     request_id=request_id,
                     signing_key_path=registration_signing_key_file(),
                 )
-                _, claims_token_public_key = load_or_create_claims_token_signing_key()
-                credential["claims_token_public_key"] = claims_token_public_key
                 registered = load_json(REGISTERED_FILE, [])
                 registered.append(
                     {
@@ -1192,7 +1187,6 @@ class IdpDidCommHandler(BaseHTTPRequestHandler):
                             credential.get("stark_program_id", ""),
                         ),
                         "stark_program_id": credential.get("stark_program_id", ""),
-                        "claims_token_public_key": claims_token_public_key,
                     }
                 )
                 save_json(REGISTERED_FILE, registered)

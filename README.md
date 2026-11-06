@@ -3,6 +3,9 @@
 This repository contains the Docker Compose configuration for the DIDSSO
 prototype and the Firefox extension required to use it.
 
+The reproducible local performance-measurement procedure is documented in
+[evaluation/EVALUATION.md](evaluation/EVALUATION.md).
+
 ## Requirements
 
 - Git

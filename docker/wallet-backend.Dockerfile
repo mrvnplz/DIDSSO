@@ -24,6 +24,7 @@ RUN apt-get update \
     && mkdir -p /data
 
 COPY --from=builder /opt/venv /opt/venv
+COPY evaluation_trace.py /app/evaluation_trace.py
 COPY firefox-extension/backend /app/firefox-extension/backend
 
 WORKDIR /app/firefox-extension/backend

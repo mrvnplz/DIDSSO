@@ -1,4 +1,15 @@
+[CmdletBinding()]
+param(
+    [switch] $Evaluation
+)
+
 Set-Location $PSScriptRoot
+if ($Evaluation) {
+    $env:DIDSSO_EVALUATION_ENABLED = "1"
+}
+else {
+    Remove-Item Env:DIDSSO_EVALUATION_ENABLED -ErrorAction SilentlyContinue
+}
 $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $zkStark = (Resolve-Path (Join-Path $PSScriptRoot "..\..\zk-stark")).Path
 $zkRisc0 = (Resolve-Path (Join-Path $PSScriptRoot "..\..\zk-risc0")).Path

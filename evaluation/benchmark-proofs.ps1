@@ -1,19 +1,20 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("all", "stwo", "risc0")]
-    [string] $Backend = "all",
+    [ValidateRange(1, 1000)]
+    [int] $Runs = 100,
 
-    [ValidateRange(1, 100)]
-    [int] $Runs = 3,
+    [ValidateRange(0, 10)]
+    [int] $WarmupRuns = 1,
 
     [string] $Output = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$projectRoot = $PSScriptRoot
+$evaluationRoot = $PSScriptRoot
+$projectRoot = (Resolve-Path (Join-Path $evaluationRoot "..")).Path
 $python = Join-Path $projectRoot ".venv-didcomm\Scripts\python.exe"
-$benchmark = Join-Path $projectRoot "benchmark-proofs.py"
+$benchmark = Join-Path $evaluationRoot "benchmark-proofs.py"
 
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "DIDSSO Python runtime not found. Run .\setup-runtime.ps1 first."
@@ -21,8 +22,8 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 
 $benchmarkArguments = @(
     $benchmark,
-    "--backend", $Backend,
-    "--runs", $Runs
+    "--runs", $Runs,
+    "--warmup-runs", $WarmupRuns
 )
 if (-not [string]::IsNullOrWhiteSpace($Output)) {
     $benchmarkArguments += @("--output", $Output)

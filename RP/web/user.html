@@ -50,6 +50,21 @@
         const notesElement = document.getElementById("notes");
         const saveStatusElement = document.getElementById("save-status");
         const logoutStatusElement = document.getElementById("logout-status");
+        const navigationMarker = new URLSearchParams(window.location.hash.slice(1));
+        const navigationSource = navigationMarker.get("didsso_navigation_source") || "unknown";
+        const navigationAt = navigationMarker.get("didsso_navigation_at_ms") || "";
+
+        document.documentElement.dataset.didssoNavigationSource = navigationSource;
+        document.documentElement.dataset.didssoNavigationAtMs = navigationAt;
+        if (window.location.hash) {
+            history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        }
+
+        function afterNextPaint() {
+            return new Promise((resolve) => {
+                requestAnimationFrame(() => requestAnimationFrame(resolve));
+            });
+        }
 
         function renderClaims(claims) {
             claimsElement.replaceChildren();
@@ -84,6 +99,10 @@
             renderClaims(account.claims);
             identifierElement.textContent = account.identifier || "";
             notesElement.value = account.notes || "";
+            await afterNextPaint();
+            document.documentElement.dataset.didssoClaimsDisplayedAtMs = String(
+                performance.timeOrigin + performance.now()
+            );
         }
 
         document.getElementById("save-notes").addEventListener("click", async () => {

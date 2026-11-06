@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import sys
+import time
 import uuid
 import base64
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,13 @@ sys.path.append(str(WORKSPACE_DIR / "zk-stark"))
 sys.path.append(str(WORKSPACE_DIR / "zk-risc0"))
 
 from sso_claims import claims_for_scopes, normalize_scopes
+from evaluation_trace import (
+    clear_measurements,
+    elapsed_seconds,
+    evaluation_enabled,
+    measurements_for,
+    record_event,
+)
 
 PROOF_BACKEND = os.environ.get("DIDSSO_PROOF_BACKEND", "risc0").strip().lower()
 if PROOF_BACKEND == "stwo":
@@ -229,6 +237,16 @@ def registrations_by_status() -> dict:
         ]
         for status in ("pending", "accepted", "rejected")
     }
+
+
+def accepted_registration_count_for_active_backend() -> int:
+    return sum(
+        1
+        for registration in load_json(REGISTRATIONS_FILE, [])
+        if registration.get("status") == "accepted"
+        and registration.get("credential", {}).get("format")
+        == ACTIVE_CREDENTIAL_FORMAT
+    )
 
 
 def update_registration_from_idp_message(sender_did: str, message: dict) -> None:
@@ -510,7 +528,7 @@ def public_session_status(session: dict | None) -> dict:
         return {"status": "unknown"}
     return {
         key: session[key]
-        for key in ("session_id", "status", "error", "error_code")
+        for key in ("session_id", "status", "login_method", "error", "error_code")
         if key in session
     }
 
@@ -632,7 +650,7 @@ def complete_direct_login(sender_did: str, message: dict) -> None:
         raise ValueError("DID login has already failed; use full DID SSO")
     if session.get("status") != "logged_in":
         try:
-            claims = fresh_claims_for_account(account)
+            claims = fresh_claims_for_account(account, session_id=session_id)
             logged_in_at = utc_now()
             upsert_account(
                 {
@@ -654,6 +672,7 @@ def complete_direct_login(sender_did: str, message: dict) -> None:
                     "claims": claims,
                 }
             )
+            record_event(session_id, "rp_logged_in")
         except Exception as error:
             upsert_session(
                 {
@@ -706,6 +725,7 @@ def create_sso_session(user_pairwise_did: str, idp_master_did: str | None = None
         "user_short_did": short_form_did(user_pairwise_did),
         "requested_claims": requested_claims,
         "scopes": scopes,
+        "login_method": "privacy_enhanced_sso",
         "proof_method": PROOF_BACKEND,
         "redirect_url": f"{RP_WEB_BASE_URL}/sso/wait?session_id={session_id}",
         "authorization_request_url": authorization_request_url,
@@ -744,9 +764,25 @@ def complete_sso_code_forward(sender_did: str, body: dict) -> None:
         raise ValueError("SSO code forward came from a different user pairwise DID")
 
     registration = accepted_registration_for_idp(session["idp_master_did"])
-    proof = create_registration_proof(
-        registration["credential"],
-        nonce=session["nonce"],
+    proof_started_ns = time.perf_counter_ns()
+    try:
+        proof = create_registration_proof(
+            registration["credential"],
+            nonce=session["nonce"],
+        )
+    except Exception:
+        record_event(
+            session_id,
+            "proof_generation",
+            duration_seconds=elapsed_seconds(proof_started_ns),
+            details={"backend": PROOF_BACKEND, "outcome": "error"},
+        )
+        raise
+    record_event(
+        session_id,
+        "proof_generation",
+        duration_seconds=elapsed_seconds(proof_started_ns),
+        details={"backend": PROOF_BACKEND, "outcome": "accepted"},
     )
 
     rp_pairwise_did = registration["rp_pairwise_did"]
@@ -1121,21 +1157,100 @@ def reject_token_request(sender_did: str, body: dict, thread_id: str) -> None:
     pending["event"].set()
 
 
-def fresh_claims_for_account(account: dict) -> dict:
+def fresh_claims_for_account(account: dict, session_id: str = "") -> dict:
     # One refresh at a time avoids spending the same rotating token in concurrent logins.
     with _TOKEN_FLOW_LOCK:
         grant = grant_for_account(account)
         if token_expiry(grant["refresh_expires_at"]) <= datetime.now(timezone.utc):
             raise ValueError("IdP refresh grant expired; use full DID SSO")
-        if token_expiry(grant["access_expires_at"]) <= datetime.now(timezone.utc) + timedelta(seconds=30):
-            response = deliver_token_request(
-                grant, SSO_TOKEN_REFRESH_TYPE, "refresh_token", SSO_TOKEN_REFRESHED_TYPE
+        refresh_required = (
+            token_expiry(grant["access_expires_at"])
+            <= datetime.now(timezone.utc) + timedelta(seconds=30)
+        )
+        mode = "refresh" if refresh_required else "access"
+        request_started_ns = time.perf_counter_ns()
+        try:
+            if refresh_required:
+                response = deliver_token_request(
+                    grant,
+                    SSO_TOKEN_REFRESH_TYPE,
+                    "refresh_token",
+                    SSO_TOKEN_REFRESHED_TYPE,
+                )
+            else:
+                response = deliver_token_request(
+                    grant,
+                    SSO_CLAIMS_REQUEST_TYPE,
+                    "access_token",
+                    SSO_CLAIMS_RESPONSE_TYPE,
+                )
+        except Exception:
+            record_event(
+                session_id,
+                "token_claims_round_trip",
+                duration_seconds=elapsed_seconds(request_started_ns),
+                details={"mode": mode, "outcome": "error"},
             )
-        else:
-            response = deliver_token_request(
-                grant, SSO_CLAIMS_REQUEST_TYPE, "access_token", SSO_CLAIMS_RESPONSE_TYPE
-            )
+            raise
+        record_event(
+            session_id,
+            "token_claims_round_trip",
+            duration_seconds=elapsed_seconds(request_started_ns),
+            details={"mode": mode, "outcome": "accepted"},
+        )
         return response["claims"]
+
+
+def evaluation_token_state() -> dict:
+    now = datetime.now(timezone.utc)
+    with _TOKEN_GRANTS_LOCK:
+        active = [
+            grant
+            for grant in load_json(TOKEN_GRANTS_FILE, [])
+            if grant.get("status") == "active"
+        ]
+    usable = []
+    for grant in active:
+        try:
+            refresh_expiry = token_expiry(grant.get("refresh_expires_at", ""))
+        except ValueError:
+            continue
+        if refresh_expiry > now:
+            usable.append(grant)
+    return {
+        "active_grant_count": len(active),
+        "usable_grant_count": len(usable),
+        "grants": [
+            {
+                "user_pairwise_did": grant.get("user_pairwise_did", ""),
+                "idp_master_did": grant.get("idp_master_did", ""),
+                "access_expires_at": grant.get("access_expires_at", ""),
+                "refresh_expires_at": grant.get("refresh_expires_at", ""),
+            }
+            for grant in usable
+        ],
+    }
+
+
+def expire_active_access_tokens_for_evaluation() -> dict:
+    expired_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    with _TOKEN_GRANTS_LOCK:
+        grants = load_json(TOKEN_GRANTS_FILE, [])
+        changed = 0
+        for grant in grants:
+            if grant.get("status") != "active":
+                continue
+            try:
+                refresh_expiry = token_expiry(grant.get("refresh_expires_at", ""))
+            except ValueError:
+                continue
+            if refresh_expiry <= datetime.now(timezone.utc):
+                continue
+            grant["access_expires_at"] = expired_at
+            changed += 1
+        if changed:
+            save_json(TOKEN_GRANTS_FILE, grants)
+    return {"expired_grant_count": changed, "access_expires_at": expired_at}
 
 
 def send_sso_result_to_plugin(
@@ -1236,9 +1351,7 @@ def store_claims_token_message(sender_did: str, body: dict, thread_id: str) -> N
         return
 
     store_initial_grant(existing_session, body, staged=False)
-    session_update["status"] = "logged_in"
-    session_update["logged_in_at"] = utc_now()
-    upsert_session(session_update)
+    account_persisted_at = utc_now()
     upsert_account(
         {
             "identifier": account_identifier_for_session(existing_session),
@@ -1247,9 +1360,14 @@ def store_claims_token_message(sender_did: str, body: dict, thread_id: str) -> N
             "idp_master_did": existing_session.get("idp_master_did", ""),
             "claims": claims,
             "last_session_id": session_id,
-            "last_login_at": utc_now(),
+            "last_login_at": account_persisted_at,
         }
     )
+    record_event(session_id, "rp_account_persisted")
+    session_update["status"] = "logged_in"
+    session_update["logged_in_at"] = account_persisted_at
+    upsert_session(session_update)
+    record_event(session_id, "rp_logged_in")
     notify_plugin_of_sso_result(
         session_by_id(session_id) or {**existing_session, **session_update},
         "success",
@@ -1288,6 +1406,7 @@ def complete_replacement_update(sender_did: str, body: dict, thread_id: str) -> 
             "replacement_completed_at": utc_now(),
         }
     )
+    record_event(session_id, "rp_logged_in")
     notify_plugin_of_sso_result(session_by_id(session_id) or session, "success")
 
 
@@ -1350,6 +1469,33 @@ class RpDidCommHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/evaluation/measurements":
+            if not evaluation_enabled():
+                self.send_error(404, "Not Found")
+                return
+            session_id = parse_qs(parsed.query).get("session_id", [""])[0]
+            self.send_json(
+                200,
+                {
+                    "enabled": True,
+                    "component": "rp",
+                    "proof_backend": PROOF_BACKEND,
+                    "accepted_registration_count": (
+                        accepted_registration_count_for_active_backend()
+                    ),
+                    "session_id": session_id,
+                    "events": measurements_for(session_id),
+                },
+            )
+            return
+
+        if parsed.path == "/evaluation/token-state":
+            if not evaluation_enabled():
+                self.send_error(404, "Not Found")
+                return
+            self.send_json(200, evaluation_token_state())
+            return
+
         if self.path == "/dids":
             self.send_json(200, list_public_records())
             return
@@ -1381,6 +1527,21 @@ class RpDidCommHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
             request = self.read_json_body()
+
+            if self.path == "/evaluation/measurements/clear":
+                if not evaluation_enabled():
+                    self.send_error(404, "Not Found")
+                    return
+                clear_measurements(str(request.get("session_id", "")))
+                self.send_json(200, {"status": "cleared"})
+                return
+
+            if self.path == "/evaluation/expire-access-tokens":
+                if not evaluation_enabled():
+                    self.send_error(404, "Not Found")
+                    return
+                self.send_json(200, expire_active_access_tokens_for_evaluation())
+                return
 
             if self.path == "/create-did":
                 self.send_json(200, create_and_store_did(str(request.get("name", ""))))

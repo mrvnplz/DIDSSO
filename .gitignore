@@ -1,11 +1,63 @@
 .agents/
 .env
+/DOCKER.md
 /benchmark-results/
 .venv/
 .venv-didcomm/
+.venv-evaluation/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 /firefox-extension/data/
 /firefox-extension/backend/tests
 /zk-stark/stwo-cairo/
+
+
+# Betriebssystem und Editoren
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+.cursor/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# Weitere lokale Umgebungsdateien
+.env.*
+!.env.example
+venv/
+
+# Python-Werkzeug- und Coverage-Artefakte
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.egg-info/
+
+# Rust- und Profiling-Artefakte
+**/target/
+*.profraw
+*.profdata
+profile.pb.gz
+
+# Temporäre Dateien und Laufzeitausgaben
+*.log
+*.tmp
+*.temp
+*.bak
+*.receipt
+*.proof
+
+# Generierte DID-Wallets
+/IdP/wallet.json
+/RP/wallet.json
+
+# Persönliche Arbeitsnotizen
+/thoughts.md
+/thoughts.txt
+/todo

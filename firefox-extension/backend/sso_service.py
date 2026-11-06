@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import sys
 from threading import Lock
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from did_peer_4 import resolve as resolve_peer_4
 
+WORKSPACE_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(WORKSPACE_DIR))
+
+from evaluation_trace import record_event
 from didcomm_service import message_thread_id, pack_encrypted_message, unpack_message
 from json_storage import load_json, save_json
 from wallet_state_service import (
@@ -358,6 +364,7 @@ def handle_sso_result(sender_did: str, message: dict) -> dict:
             "redirectUrl": redirect_url,
             "binding": binding,
         }
+        record_event(auth_request["sessionId"], "wallet_result_validated")
         save_sso_result(result)
         clear_current_auth_request()
         return result

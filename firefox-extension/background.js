@@ -16,6 +16,13 @@ let activeSsoAuthentication = null;
 let knownIdpOrigins = new Set();
 const activeSsoMonitors = new Set();
 
+const evaluationModeReady = fetch(
+  `${DID_SERVICE_URL}/evaluation/measurements?session_id=extension-preflight`,
+  {headers: {"Accept": "application/json"}, cache: "no-store"}
+)
+  .then(async (response) => response.ok && (await response.json()).enabled === true)
+  .catch(() => false);
+
 const managementSettingsReady = browser.storage.local
   .get([
     "selectedDid",
@@ -269,6 +276,60 @@ function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function browserEpochMilliseconds() {
+  return performance.timeOrigin + performance.now();
+}
+
+function navigationUrl(redirectUrl, source, timestampEpochMs) {
+  const target = new URL(redirectUrl);
+  target.hash = new URLSearchParams({
+    didsso_navigation_source: source,
+    didsso_navigation_at_ms: String(timestampEpochMs)
+  }).toString();
+  return target.href;
+}
+
+async function recordExtensionResultDetection(sessionId, timestampEpochMs) {
+  if (!(await evaluationModeReady)) {
+    return;
+  }
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(`${DID_SERVICE_URL}/evaluation/event`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          event: "extension_result_detected",
+          timestamp_epoch_ms: timestampEpochMs
+        })
+      });
+      if (response.ok) {
+        return;
+      }
+    } catch (error) {
+      // Retry below; telemetry must never influence the authentication flow.
+    }
+    await wait(100);
+  }
+  console.warn("Could not record the evaluation result-detection event");
+}
+
+function sameNavigationTarget(currentUrl, targetUrl) {
+  try {
+    const current = new URL(currentUrl);
+    const target = new URL(targetUrl);
+    return current.origin === target.origin
+      && current.pathname === target.pathname
+      && current.search === target.search;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function monitorSsoCompletion(context) {
   if (!context?.sessionId || activeSsoMonitors.has(context.sessionId)) {
     return;
@@ -288,8 +349,16 @@ async function monitorSsoCompletion(context) {
           throw new Error(result.error || "Could not read the SSO result");
         }
         if (result.status === "sso-completed") {
+          const detectedAt = browserEpochMilliseconds();
+          void recordExtensionResultDetection(context.sessionId, detectedAt);
           await clearSsoAuthentication();
-          await browser.tabs.update(context.tabId, {url: result.redirectUrl});
+          const tab = await browser.tabs.get(context.tabId);
+          if (!sameNavigationTarget(tab.url, result.redirectUrl)) {
+            const navigationAt = browserEpochMilliseconds();
+            await browser.tabs.update(context.tabId, {
+              url: navigationUrl(result.redirectUrl, "extension", navigationAt)
+            });
+          }
           return;
         }
         if (result.status === "sso-retry-required") {

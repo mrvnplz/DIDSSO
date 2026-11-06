@@ -20,13 +20,22 @@
         const status = document.getElementById("status");
         const authorizationError = params.get("error");
 
+        function userPageUrl() {
+            const navigationAt = performance.timeOrigin + performance.now();
+            const marker = new URLSearchParams({
+                didsso_navigation_source: "rp_session_poll",
+                didsso_navigation_at_ms: String(navigationAt),
+            });
+            return `/user?session_id=${encodeURIComponent(sessionId)}#${marker}`;
+        }
+
         async function poll() {
             const response = await fetch(`http://127.0.0.1:8771/sso/session?session_id=${encodeURIComponent(sessionId)}`);
             const session = await response.json();
 
             if (session.status === "logged_in") {
                 status.textContent = "Login complete.";
-                window.location.href = `/user?session_id=${encodeURIComponent(sessionId)}`;
+                window.location.href = userPageUrl();
                 return;
             }
 
