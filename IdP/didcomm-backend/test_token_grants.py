@@ -36,15 +36,6 @@ class TokenGrantTests(unittest.TestCase):
         did_patcher = patch.object(server, "did_named", return_value="did:peer:idp")
         did_patcher.start()
         self.addCleanup(did_patcher.stop)
-        token_patcher = patch.object(
-            server,
-            "signed_claims_token",
-            side_effect=lambda claims, audience, issuer, nonce: (
-                f"signed:{audience}:{nonce}:{claims.get('preferred_username', '')}"
-            ),
-        )
-        token_patcher.start()
-        self.addCleanup(token_patcher.stop)
 
     def issue(self) -> dict:
         return server.issue_token_grant(
@@ -77,10 +68,9 @@ class TokenGrantTests(unittest.TestCase):
         )
         self.assertEqual(response["claims"]["preferred_username"], "alice-updated")
         self.assertNotIn("email", response["claims"])
-        self.assertEqual(
-            response["claims_token"],
-            "signed:did:peer:rp-pairwise:request-1:alice-updated",
-        )
+        self.assertEqual(response["request_id"], "request-1")
+        self.assertEqual(response["idp_master_did"], "did:peer:idp")
+        self.assertNotIn("claims_token", response)
         with self.assertRaises(PermissionError):
             server.claims_for_access_token(
                 "did:peer:someone-else",
@@ -96,10 +86,8 @@ class TokenGrantTests(unittest.TestCase):
         self.assertNotEqual(renewed["access_token"], initial["access_token"])
         self.assertNotEqual(renewed["refresh_token"], initial["refresh_token"])
         self.assertEqual(renewed["refresh_expires_at"], initial["refresh_expires_at"])
-        self.assertEqual(
-            renewed["claims_token"],
-            "signed:did:peer:rp-pairwise:request-1:alice",
-        )
+        self.assertEqual(renewed["request_id"], "request-1")
+        self.assertNotIn("claims_token", renewed)
         with self.assertRaises(PermissionError):
             server.claims_for_access_token(
                 "did:peer:rp-pairwise",
@@ -146,15 +134,15 @@ class TokenGrantTests(unittest.TestCase):
                     authenticated=True,
                     non_repudiation=False,
                     anonymous_sender=False,
-                    encrypted_from="did:peer:rp-pairwise#key-1",
+                    encrypted_from="did:peer:rp-pairwise#key-0",
                 )
             ),
         }
         self.assertEqual(server.authcrypt_sender_did(unpacked), "did:peer:rp-pairwise")
-        unpacked["metadata"]["encrypted_from"] = "did:peer:attacker#key-1"
+        unpacked["metadata"]["encrypted_from"] = "did:peer:attacker#key-0"
         with self.assertRaises(PermissionError):
             server.authcrypt_sender_did(unpacked)
-        unpacked["metadata"]["encrypted_from"] = "did:peer:rp-pairwise#key-1"
+        unpacked["metadata"]["encrypted_from"] = "did:peer:rp-pairwise#key-0"
         unpacked["metadata"]["authenticated"] = False
         with self.assertRaises(PermissionError):
             server.authcrypt_sender_did(unpacked)

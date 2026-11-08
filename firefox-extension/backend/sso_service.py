@@ -417,12 +417,28 @@ def handle_sso_result(sender_did: str, message: dict) -> dict:
     raise ValueError("Unsupported SSO result status")
 
 
+def require_authcrypt_sender(unpacked: dict) -> str:
+    sender_did = str(unpacked.get("message", {}).get("from", "")).strip()
+    if not sender_did:
+        raise ValueError("DIDComm message has no sender DID")
+
+    metadata = unpacked.get("metadata", {})
+    if not metadata.get("encrypted") or not metadata.get("authenticated"):
+        raise ValueError("DIDComm message requires authenticated encryption")
+
+    sender_key = str(metadata.get("encrypted_from") or "")
+    authenticated_did, separator, fragment = sender_key.rpartition("#")
+    if not separator or not fragment or authenticated_did != sender_did:
+        raise ValueError("DIDComm sender DID does not match the authenticated key")
+    return sender_did
+
+
 def receive_didcomm_message(packed_message: dict | str, sender_did: str = "") -> dict:
     unpacked = unpack_message(packed_message, sender_did=sender_did)
+    # The outer senderDid is only a resolution hint, not proof of the sender.
+    # Authenticate before any protocol handler can respond or update wallet state.
+    authenticated_sender = require_authcrypt_sender(unpacked)
     message = unpacked["message"]
-    authenticated_sender = str(message.get("from", "")).strip()
-    if not authenticated_sender:
-        raise ValueError("DIDComm message has no authenticated sender DID")
 
     if message.get("type") == DID_LOGIN_CHALLENGE_TYPE:
         return respond_to_direct_login_challenge(authenticated_sender, message)

@@ -6,7 +6,6 @@ import secrets
 import sys
 import time
 import uuid
-import base64
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,8 +15,6 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from did_peer_4 import resolve as resolve_peer_4
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(WORKSPACE_DIR))
@@ -72,7 +69,9 @@ REGISTER_ACCEPTED_TYPE = "https://did-sso.local/protocol/rp-registration/1.0/acc
 REGISTER_REJECTED_TYPE = "https://did-sso.local/protocol/rp-registration/1.0/rejected"
 SSO_CODE_FORWARD_TYPE = "https://did-sso.local/protocol/sso/1.0/code-forward"
 SSO_CODE_EXCHANGE_TYPE = "https://did-sso.local/protocol/sso/1.0/code-exchange"
-SSO_CLAIMS_TOKEN_TYPE = "https://did-sso.local/protocol/sso/1.0/claims-token"
+SSO_AUTHORIZATION_RESPONSE_TYPE = (
+    "https://did-sso.local/protocol/sso/1.0/authorization-response"
+)
 SSO_ERROR_TYPE = "https://did-sso.local/protocol/sso/1.0/error"
 SSO_RESULT_TYPE = "https://did-sso.local/protocol/sso/1.0/result"
 SSO_CLAIMS_REQUEST_TYPE = "https://did-sso.local/protocol/sso/1.0/claims-request"
@@ -88,7 +87,7 @@ AUTHCRYPT_REQUIRED_TYPES = {
     REGISTER_ACCEPTED_TYPE,
     REGISTER_REJECTED_TYPE,
     SSO_CODE_FORWARD_TYPE,
-    SSO_CLAIMS_TOKEN_TYPE,
+    SSO_AUTHORIZATION_RESPONSE_TYPE,
     SSO_CLAIMS_RESPONSE_TYPE,
     SSO_TOKEN_REFRESHED_TYPE,
     SSO_ERROR_TYPE,
@@ -208,6 +207,22 @@ def require_authcrypt_sender(unpacked: dict) -> str:
     ):
         raise ValueError("DIDComm message has no matching authenticated sender key")
     return sender_did
+
+
+def require_message_recipient(message: dict, expected_recipient_did: str) -> None:
+    recipients = message.get("to", [])
+    if isinstance(recipients, str):
+        recipients = [recipients]
+    if not isinstance(recipients, list) or recipients != [expected_recipient_did]:
+        raise ValueError("DIDComm message has a different intended recipient")
+
+
+def validate_returned_claims(claims: object, expected_claims: list[str]) -> dict:
+    if not isinstance(claims, dict):
+        raise ValueError("IdP response has no valid claims object")
+    if set(claims) != set(expected_claims):
+        raise ValueError("IdP response contains unexpected or missing claims")
+    return claims
 
 
 def public_registration(registration: dict) -> dict:
@@ -914,56 +929,6 @@ def send_replacement_update_to_idp(session: dict, replace_id: str) -> None:
     )
 
 
-def decode_base64url(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-
-
-def verify_claims_token(token: str, session: dict, claims: dict) -> dict:
-    parts = token.split(".")
-    if len(parts) != 3:
-        raise ValueError("Invalid claims token format")
-    header = json.loads(decode_base64url(parts[0]))
-    payload = json.loads(decode_base64url(parts[1]))
-    if header.get("alg") != "EdDSA":
-        raise ValueError("Claims token does not use EdDSA")
-
-    registration = accepted_registration_for_idp(session.get("idp_master_did"))
-    public_key = registration["credential"].get("claims_token_public_key", "")
-    if not public_key:
-        raise ValueError("IdP registration has no claims token verification key")
-    try:
-        Ed25519PublicKey.from_public_bytes(decode_base64url(public_key)).verify(
-            decode_base64url(parts[2]),
-            f"{parts[0]}.{parts[1]}".encode("ascii"),
-        )
-    except (InvalidSignature, ValueError) as error:
-        raise ValueError("Invalid claims token signature") from error
-
-    if "sub" in payload:
-        raise ValueError("Claims token must not contain a subject claim")
-    if payload.get("iss") != session.get("idp_master_did"):
-        raise ValueError("Claims token issuer does not match the registered IdP")
-    if payload.get("aud") != session.get("rp_pairwise_did"):
-        raise ValueError("Claims token audience does not match the RP pairwise DID")
-    if payload.get("nonce") != session.get("nonce"):
-        raise ValueError("Claims token nonce does not match the authorization request")
-    now = int(datetime.now(timezone.utc).timestamp())
-    if not isinstance(payload.get("iat"), int) or not isinstance(payload.get("exp"), int):
-        raise ValueError("Claims token has invalid timestamps")
-    if payload["iat"] > now + 30 or payload["exp"] <= now:
-        raise ValueError("Claims token is not currently valid")
-    profile_claims = {
-        key: value
-        for key, value in payload.items()
-        if key not in {"iss", "aud", "iat", "exp", "nonce"}
-    }
-    if set(claims) != set(session.get("requested_claims", [])):
-        raise ValueError("Claims token contains attributes outside the requested scopes")
-    if profile_claims != claims:
-        raise ValueError("Claims token attributes do not match the consent result")
-    return payload
-
-
 def token_expiry(value: str) -> datetime:
     try:
         expiry = datetime.fromisoformat(str(value))
@@ -1102,12 +1067,12 @@ def deliver_token_request(grant: dict, message_type: str, token_field: str, resp
             _PENDING_TOKEN_REQUESTS.pop(request_id, None)
 
 
-def complete_token_response(
-    sender_did: str,
-    message_type: str,
-    body: dict,
-    thread_id: str,
-) -> None:
+def complete_token_response(sender_did: str, message: dict) -> None:
+    message_type = message.get("type")
+    body = message.get("body", {})
+    if not isinstance(body, dict):
+        raise ValueError("IdP token response has an invalid body")
+    thread_id = message_thread_id(message)
     request_id = str(body.get("request_id", ""))
     with _PENDING_TOKEN_REQUESTS_LOCK:
         pending = _PENDING_TOKEN_REQUESTS.get(request_id)
@@ -1122,18 +1087,10 @@ def complete_token_response(
         raise ValueError("IdP token response has the wrong message type")
     if sender_did != grant["idp_master_did"] or body.get("idp_master_did") != sender_did:
         raise ValueError("IdP token response has a different authenticated sender")
-    claims = body.get("claims")
-    if not isinstance(claims, dict):
-        raise ValueError("IdP token response has no claims")
-    verify_claims_token(
-        str(body.get("claims_token", "")),
-        {
-            "idp_master_did": grant["idp_master_did"],
-            "rp_pairwise_did": grant["rp_pairwise_did"],
-            "nonce": request_id,
-            "requested_claims": grant["requested_claims"],
-        },
-        claims,
+    require_message_recipient(message, grant["rp_pairwise_did"])
+    validate_returned_claims(
+        body.get("claims"),
+        grant["requested_claims"],
     )
     if message_type == SSO_TOKEN_REFRESHED_TYPE:
         # Persist the rotated pair before acknowledging the DIDComm callback.
@@ -1309,34 +1266,48 @@ def notify_plugin_of_sso_result(
         )
 
 
-def store_claims_token_message(sender_did: str, body: dict, thread_id: str) -> None:
-    session_id = body["session_id"]
+def store_authorization_response(sender_did: str, message: dict) -> None:
+    if message.get("type") != SSO_AUTHORIZATION_RESPONSE_TYPE:
+        raise ValueError("Unexpected SSO authorization response type")
+    body = message.get("body", {})
+    if not isinstance(body, dict):
+        raise ValueError("SSO authorization response has an invalid body")
+    session_id = str(body.get("session_id", ""))
     existing_session = session_by_id(session_id)
     if not existing_session:
         raise ValueError("Unknown SSO session")
-    if thread_id != existing_session.get("didcomm_thread_id"):
-        raise ValueError("Claims token belongs to a different DIDComm thread")
+    if message_thread_id(message) != existing_session.get("didcomm_thread_id"):
+        raise ValueError("SSO authorization response belongs to a different DIDComm thread")
     if sender_did != existing_session.get("idp_master_did"):
-        raise ValueError("Claims token came from a different IdP DID")
+        raise ValueError("SSO authorization response came from a different IdP DID")
     if body.get("idp_master_did") != sender_did:
-        raise ValueError("Claims token body does not match the authenticated IdP DID")
+        raise ValueError("SSO response body does not match the authenticated IdP DID")
+    require_message_recipient(message, existing_session.get("rp_pairwise_did", ""))
     if existing_session.get("status") != "code_exchange_sent":
-        raise ValueError("Claims token is not expected for this SSO session")
+        raise ValueError("SSO authorization response is not expected for this session")
+    if body.get("nonce") != existing_session.get("nonce"):
+        raise ValueError("SSO authorization response nonce does not match the session")
 
-    claims = body.get("claims", {})
-    verify_claims_token(body.get("claims_token", ""), existing_session, claims)
+    claims = validate_returned_claims(
+        body.get("claims"),
+        existing_session.get("requested_claims", []),
+    )
+    expected_replace_id = str(existing_session.get("replace_id", ""))
+    received_replace_id = str(body.get("replace_id", ""))
+    if received_replace_id != expected_replace_id:
+        raise ValueError("SSO authorization response replacement ID does not match the session")
     session_update = {
         "session_id": session_id,
         "claims": claims,
         "idp_master_did": body.get("idp_master_did", ""),
     }
-    if body.get("replace_id"):
+    if expected_replace_id:
         validate_pairwise_replacement(
             body.get("previous_user_short_did", ""),
             existing_session.get("user_pairwise_did", ""),
         )
         store_initial_grant(existing_session, body, staged=True)
-        session_update["replace_id"] = body["replace_id"]
+        session_update["replace_id"] = expected_replace_id
         session_update["previous_user_short_did"] = body.get("previous_user_short_did", "")
         session_update["status"] = "replacement_update_sent"
         upsert_session(session_update)
@@ -1346,7 +1317,7 @@ def store_claims_token_message(sender_did: str, body: dict, thread_id: str) -> N
         }
         send_replacement_update_to_idp(
             current_session,
-            body["replace_id"],
+            expected_replace_id,
         )
         return
 
@@ -1612,19 +1583,10 @@ class RpDidCommHandler(BaseHTTPRequestHandler):
                     response_status = 202
                 elif message_type == DID_LOGIN_RESPONSE_TYPE:
                     complete_direct_login(sender_did, message)
-                elif message_type == SSO_CLAIMS_TOKEN_TYPE:
-                    store_claims_token_message(
-                        sender_did,
-                        message.get("body", {}),
-                        thread_id,
-                    )
+                elif message_type == SSO_AUTHORIZATION_RESPONSE_TYPE:
+                    store_authorization_response(sender_did, message)
                 elif message_type in {SSO_CLAIMS_RESPONSE_TYPE, SSO_TOKEN_REFRESHED_TYPE}:
-                    complete_token_response(
-                        sender_did,
-                        message_type,
-                        message.get("body", {}),
-                        thread_id,
-                    )
+                    complete_token_response(sender_did, message)
                 elif message_type == SSO_ERROR_TYPE:
                     error_body = message.get("body", {})
                     if error_body.get("request_id"):

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
+from cryptography.hazmat.primitives.asymmetric import x25519
 from did_peer_4 import encode, resolve_short
 from did_peer_4.input_doc import KeySpec, input_doc_from_keys_and_services
 from json_storage import load_json, save_json
@@ -41,10 +41,6 @@ def raw_private_key_base58btc(private_key) -> str:
         encryption_algorithm=serialization.NoEncryption(),
     )
     return base58btc_encode(private_bytes)
-
-
-def multikey_ed25519(public_key: bytes) -> str:
-    return base58btc_encode(b"\xed\x01" + public_key)
 
 
 def multikey_x25519(public_key: bytes) -> str:
@@ -83,22 +79,11 @@ def short_form_did(did: str) -> str:
 
 # creates a peer did
 def create_did_peer_4_record(name: str) -> dict:
-    signing_key = ed25519.Ed25519PrivateKey.generate()
     agreement_key = x25519.X25519PrivateKey.generate()
 
-    signing_multikey = multikey_ed25519(raw_public_key(signing_key.public_key()))
     agreement_multikey = multikey_x25519(raw_public_key(agreement_key.public_key()))
 
     keys = [
-        KeySpec(
-            multikey=signing_multikey,
-            relationships=[
-                "authentication",
-                "assertionMethod",
-                "capabilityInvocation",
-                "capabilityDelegation",
-            ],
-        ),
         KeySpec(
             multikey=agreement_multikey,
             relationships=["keyAgreement"],
@@ -123,9 +108,7 @@ def create_did_peer_4_record(name: str) -> dict:
         "inputDocument": input_document,
         "resolvedDocument": resolve_short(did),
         "keys": {
-            "signingPublicMultikey": signing_multikey,
             "agreementPublicMultikey": agreement_multikey,
-            "signingPrivateRawBase58btc": raw_private_key_base58btc(signing_key),
             "agreementPrivateRawBase58btc": raw_private_key_base58btc(agreement_key),
         },
         "createdAt": datetime.now(timezone.utc).isoformat(),

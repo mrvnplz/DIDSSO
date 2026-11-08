@@ -1031,7 +1031,7 @@ class IdpDidCommHandler(BaseHTTPRequestHandler):
 
                 if message_type in {SSO_CLAIMS_REQUEST_TYPE, SSO_TOKEN_REFRESH_TYPE}:
                     # message.from and the outer senderDid hint are not proof of
-                    # possession of the pairwise DID's authentication key.
+                    # possession of the pairwise DID's key-agreement key.
                     sender_did = authcrypt_sender_did(unpacked)
                     if not isinstance(body, dict):
                         self.send_json(400, {"error": "Malformed token request"})

@@ -31,7 +31,6 @@ from did_peer_4_service import (
 )
 
 
-ED25519_PUBLIC_PREFIX = b"\xed\x01"
 X25519_PUBLIC_PREFIX = b"\xec\x01"
 
 
@@ -68,17 +67,12 @@ def require_long_form_did(did: str) -> str:
 
 
 # konvertiert public multikey zu JWK
-def public_jwk(key_type: str, public_multikey: str) -> dict:
-    if key_type == "Ed25519":
-        public_key = decode_multikey_public_key(public_multikey, ED25519_PUBLIC_PREFIX)
-    elif key_type == "X25519":
-        public_key = decode_multikey_public_key(public_multikey, X25519_PUBLIC_PREFIX)
-    else:
-        raise ValueError(f"Unsupported DIDComm key type: {key_type}")
+def public_jwk(public_multikey: str) -> dict:
+    public_key = decode_multikey_public_key(public_multikey, X25519_PUBLIC_PREFIX)
 
     return {
         "kty": "OKP",
-        "crv": key_type,
+        "crv": "X25519",
         "x": base64url_encode(public_key),
     }
 
@@ -97,31 +91,20 @@ def didcomm_did_doc(did: str, document: dict) -> DIDDoc:
     def full_kid(kid: str) -> str:
         return f"{did}{kid}" if kid.startswith("#") else kid
 
-    signing_ref = method_id(document["authentication"][0])
     agreement_ref = method_id(document["keyAgreement"][0])
-    signing_kid = full_kid(signing_ref)
     agreement_kid = full_kid(agreement_ref)
-    signing_method = methods.get(signing_ref, document["authentication"][0])
     agreement_method = methods.get(agreement_ref, document["keyAgreement"][0])
 
     return DIDDoc(
         id=did,
         verificationMethod=[
             VerificationMethod(
-                id=signing_kid,
-                type=VerificationMethodType.JSON_WEB_KEY_2020,
-                controller=did,
-                publicKeyJwk=public_jwk("Ed25519", signing_method["publicKeyMultibase"]),
-            ),
-            VerificationMethod(
                 id=agreement_kid,
                 type=VerificationMethodType.JSON_WEB_KEY_2020,
                 controller=did,
-                publicKeyJwk=public_jwk("X25519", agreement_method["publicKeyMultibase"]),
+                publicKeyJwk=public_jwk(agreement_method["publicKeyMultibase"]),
             ),
         ],
-        authentication=[signing_kid],
-        assertionMethod=[signing_kid],
         keyAgreement=[agreement_kid],
         service=[
             DIDCommService(
@@ -138,11 +121,10 @@ def didcomm_did_doc(did: str, document: dict) -> DIDDoc:
 # Erstellt aus einem oeffentlichen und privaten Schluessel ein DIDComm-Secret im JWK-Format.
 def jwk_secret(
     kid: str,
-    key_type: str,
     public_multikey: str,
     private_raw_base58btc: str,
 ) -> Secret:
-    jwk = public_jwk(key_type, public_multikey)
+    jwk = public_jwk(public_multikey)
     private_key = base58btc_decode(private_raw_base58btc)
     jwk["kid"] = kid
     jwk["d"] = base64url_encode(private_key)
@@ -157,20 +139,13 @@ def jwk_secret(
     )
 
 
-# Erstellt die Signatur- und Schluesselaustausch-Secrets eines Wallet-Eintrags fuer DIDComm.
+# Erstellt das X25519-Schluesselaustausch-Secret eines Wallet-Eintrags fuer DIDComm.
 def didcomm_secrets(record: dict, did: str) -> list[Secret]:
     keys = record["keys"]
 
     return [
         jwk_secret(
             key_id(did, "key-0"),
-            "Ed25519",
-            keys["signingPublicMultikey"],
-            keys["signingPrivateRawBase58btc"],
-        ),
-        jwk_secret(
-            key_id(did, "key-1"),
-            "X25519",
             keys["agreementPublicMultikey"],
             keys["agreementPrivateRawBase58btc"],
         ),

@@ -1,6 +1,9 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [switch] $ValidateOnly
+    [switch] $ValidateOnly,
+    [string] $IdpDataDir,
+    [string] $RpDataDir,
+    [string] $WalletDataDir
 )
 
 Set-StrictMode -Version Latest
@@ -10,15 +13,76 @@ $projectRoot = [System.IO.Path]::GetFullPath($PSScriptRoot).TrimEnd(
     [System.IO.Path]::DirectorySeparatorChar,
     [System.IO.Path]::AltDirectorySeparatorChar
 )
-$projectPrefix = $projectRoot + [System.IO.Path]::DirectorySeparatorChar
 $pluginRoot = Join-Path $projectRoot "firefox-extension"
+
+# A single inherited override does not identify the three participants' stores.
+if (-not [string]::IsNullOrWhiteSpace($env:DIDSSO_DATA_DIR)) {
+    foreach ($parameter in @("IdpDataDir", "RpDataDir", "WalletDataDir")) {
+        if (-not $PSBoundParameters.ContainsKey($parameter)) {
+            throw "DIDSSO_DATA_DIR is set. Specify -IdpDataDir, -RpDataDir and -WalletDataDir explicitly; no files were changed."
+        }
+    }
+}
+
+function Resolve-DataDirectory {
+    param([string] $Path, [string] $DefaultPath)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = $DefaultPath
+    }
+    if (-not [System.IO.Path]::IsPathRooted($Path)) {
+        $Path = Join-Path $projectRoot $Path
+    }
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $volumeRoot = [System.IO.Path]::GetPathRoot($fullPath)
+    if ($fullPath.TrimEnd('\', '/') -eq $volumeRoot.TrimEnd('\', '/')) {
+        throw "A drive root cannot be used as a reset data directory: $fullPath"
+    }
+    $fullPath = $fullPath.TrimEnd('\', '/')
+    $prefix = $fullPath + [System.IO.Path]::DirectorySeparatorChar
+    if ($fullPath -eq $projectRoot -or $projectRoot.StartsWith(
+        $prefix, [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "The project root or its ancestors cannot be reset data directories: $fullPath"
+    }
+    foreach ($broadDirectory in @(
+        $env:USERPROFILE, $env:SystemRoot, $env:ProgramFiles, $env:ProgramData,
+        [System.IO.Path]::GetTempPath()
+    )) {
+        if (-not [string]::IsNullOrWhiteSpace($broadDirectory) -and
+            $fullPath -eq [System.IO.Path]::GetFullPath($broadDirectory).TrimEnd('\', '/')) {
+            throw "A broad system/user directory cannot be used for reset: $fullPath"
+        }
+    }
+    return $fullPath
+}
+
+foreach ($parameter in @("IdpDataDir", "RpDataDir", "WalletDataDir")) {
+    if ($PSBoundParameters.ContainsKey($parameter) -and
+        [string]::IsNullOrWhiteSpace($PSBoundParameters[$parameter])) {
+        throw "-$parameter must not be empty."
+    }
+}
+$idpRoot = Resolve-DataDirectory $IdpDataDir (Join-Path $projectRoot "IdP")
+$rpRoot = Resolve-DataDirectory $RpDataDir (Join-Path $projectRoot "RP")
+$walletRoot = Resolve-DataDirectory $WalletDataDir (Join-Path $pluginRoot "data")
+$dataRoots = @($idpRoot, $rpRoot, $walletRoot)
+for ($i = 0; $i -lt $dataRoots.Count; $i++) {
+    for ($j = $i + 1; $j -lt $dataRoots.Count; $j++) {
+        $left = $dataRoots[$i] + [System.IO.Path]::DirectorySeparatorChar
+        $right = $dataRoots[$j] + [System.IO.Path]::DirectorySeparatorChar
+        if ($left.StartsWith($right, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $right.StartsWith($left, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Participant data directories must be separate and must not overlap: $left / $right"
+        }
+    }
+}
 
 $requiredDirectories = @(
     (Join-Path $projectRoot "IdP"),
     (Join-Path $projectRoot "RP"),
     $pluginRoot,
-    (Join-Path $pluginRoot "backend"),
-    (Join-Path $pluginRoot "data")
+    (Join-Path $pluginRoot "backend")
 )
 foreach ($directory in $requiredDirectories) {
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
@@ -37,38 +101,61 @@ foreach ($file in $requiredPluginFiles) {
 }
 
 $stateFiles = @(
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\sso_token_grants.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\sessions.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\users.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\sso_user_did_links.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\oidc_codes.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\registered_rps.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\pending_rp_requests.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "RP\idp_registrations.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "RP\token_grants.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "RP\user_accounts.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "RP\sso_sessions.json"; Content = "[]" },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "IdP\didcomm-backend\wallet.json"; Content = '{"dids":[]}' },
-    [pscustomobject]@{ Path = Join-Path $projectRoot "RP\didcomm-backend\wallet.json"; Content = '{"dids":[]}' },
-    [pscustomobject]@{ Path = Join-Path $pluginRoot "data\wallet.json"; Content = '{"dids":[]}' },
-    [pscustomobject]@{ Path = Join-Path $pluginRoot "data\selected_did.json"; Content = "{}" },
-    [pscustomobject]@{ Path = Join-Path $pluginRoot "data\sso_auth_request.json"; Content = "{}" },
-    [pscustomobject]@{ Path = Join-Path $pluginRoot "data\sso_result.json"; Content = "{}" }
+    [pscustomobject]@{ Path = Join-Path $idpRoot "sso_token_grants.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "sessions.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "users.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "sso_user_did_links.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "oidc_codes.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "registered_rps.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "pending_rp_requests.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $rpRoot "idp_registrations.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $rpRoot "token_grants.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $rpRoot "user_accounts.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $rpRoot "sso_sessions.json"; Content = "[]" },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "wallet.json"; Content = '{"dids":[]}' },
+    [pscustomobject]@{ Path = Join-Path $rpRoot "wallet.json"; Content = '{"dids":[]}' },
+    [pscustomobject]@{ Path = Join-Path $walletRoot "wallet.json"; Content = '{"dids":[]}' },
+    [pscustomobject]@{ Path = Join-Path $walletRoot "selected_did.json"; Content = "{}" },
+    [pscustomobject]@{ Path = Join-Path $walletRoot "sso_auth_request.json"; Content = "{}" },
+    [pscustomobject]@{ Path = Join-Path $walletRoot "sso_result.json"; Content = "{}" }
 )
 
 foreach ($stateFile in $stateFiles) {
     $fullPath = [System.IO.Path]::GetFullPath($stateFile.Path)
-    if (-not $fullPath.StartsWith(
-        $projectPrefix,
-        [System.StringComparison]::OrdinalIgnoreCase
-    )) {
-        throw "Reset target leaves the DIDSSO directory: $fullPath"
+    $rootedTarget = $false
+    foreach ($dataRoot in $dataRoots) {
+        if ($fullPath.StartsWith(
+            $dataRoot + [System.IO.Path]::DirectorySeparatorChar,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )) {
+            $rootedTarget = $true
+        }
     }
-    if (-not (Test-Path -LiteralPath (Split-Path -Parent $fullPath) -PathType Container)) {
-        throw "Reset target directory not found: $fullPath"
+    if (-not $rootedTarget) {
+        throw "Reset target leaves the configured data directories: $fullPath"
+    }
+    # Reject links/junctions and invalid parent paths before any file is changed.
+    $cursor = $fullPath
+    while (-not [string]::IsNullOrEmpty($cursor)) {
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                throw "Reset targets must not traverse links/junctions: $cursor"
+            }
+            if ($cursor -eq $fullPath -and $item.PSIsContainer) {
+                throw "Reset target is a directory, not a JSON file: $cursor"
+            }
+            if ($cursor -ne $fullPath -and -not $item.PSIsContainer) {
+                throw "Reset target parent is not a directory: $cursor"
+            }
+        }
+        $cursor = Split-Path -Parent $cursor
     }
     $stateFile.Content | ConvertFrom-Json | Out-Null
 }
+
+Write-Warning "Local file reset only: Docker volumes and Firefox extension storage are not reset."
+Write-Warning "Stop all IdP/RP web and protocol backends and the wallet backend BEFORE resetting."
 
 if ($ValidateOnly) {
     $stateFiles |
@@ -85,6 +172,10 @@ foreach ($stateFile in $stateFiles) {
         continue
     }
 
+    $directory = Split-Path -Parent $stateFile.Path
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
     $temporary = Join-Path (
         Split-Path -Parent $stateFile.Path
     ) (".{0}.{1}.tmp" -f (Split-Path -Leaf $stateFile.Path), [guid]::NewGuid().ToString("N"))
@@ -115,3 +206,5 @@ if ($writtenFiles.Count -eq 0) {
 
 Write-Host "Reset $($writtenFiles.Count) state files successfully."
 Write-Host "Restart IdP, RP and firefox-extension/backend before testing again."
+Write-Host "Clear stale Firefox extension state separately before selecting a newly created DID."
+Write-Host "Registration-proof signing keys and RP scope configuration were preserved."

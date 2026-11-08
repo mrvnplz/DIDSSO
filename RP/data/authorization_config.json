@@ -1,5 +1,6 @@
 {
   "scopes": [
-    "profile"
+    "profile",
+    "email"
   ]
 }
