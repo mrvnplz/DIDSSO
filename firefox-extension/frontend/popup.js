@@ -103,10 +103,10 @@ createButton.addEventListener("click", async () => {
     const record = await generateDid();
     await loadDids(record.did);
     didNameInput.value = "";
-    setStatus(`DID fuer "${record.name}" wurde erstellt.`);
+    setStatus(`DID created for "${record.name}".`);
   } catch (error) {
     console.error(error);
-    setStatus(error.message === "Missing DID name" ? "Please enter an alias fro your DID." : "DID-Service not responding or has an error.");
+    setStatus(error.message === "Missing DID name" ? "Please enter an alias for your DID." : "DID-Service not responding or has an error.");
   } finally {
     createButton.disabled = false;
   }
@@ -120,7 +120,7 @@ copyButton.addEventListener("click", async () => {
   }
 
   await navigator.clipboard.writeText(record.did);
-  setStatus(`Vollstaendige DID fuer "${record.name}" kopiert.`);
+  setStatus(`Full DID for "${record.name}" copied.`);
 });
 
 didList.addEventListener("change", () => {
@@ -164,11 +164,11 @@ async function initializePopup() {
   }
 
   await loadDids(selectedDid);
-  setStatus("Wallet geladen.");
+  setStatus("Wallet loaded.");
 }
 
 initializePopup().catch((error) => {
   console.error(error);
   copyButton.disabled = true;
-  setStatus("DID-Service nicht erreichbar.");
+  setStatus("Could not reach the DID service.");
 });

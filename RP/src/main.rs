@@ -5,23 +5,23 @@ use std::{
 };
 
 fn main() {
-    let port = std::env::var("PORT").expect("PORT muss gesetzt sein");
+    let port = std::env::var("PORT").expect("PORT must be set");
     let host = std::env::var("DIDSSO_BIND_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let addr = format!("{host}:{port}");
 
-    let listener = TcpListener::bind(&addr).expect("Server konnte nicht starten");
+    let listener = TcpListener::bind(&addr).expect("Server could not start");
 
-    println!("Server laeuft auf http://{addr}");
-    println!("Stoppen mit Ctrl+C");
+    println!("Server running at http://{addr}");
+    println!("Press Ctrl+C to stop");
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 if let Err(error) = handle_connection(stream) {
-                    eprintln!("Request konnte nicht verarbeitet werden: {error}");
+                    eprintln!("Could not process request: {error}");
                 }
             }
-            Err(error) => eprintln!("Verbindung konnte nicht angenommen werden: {error}"),
+            Err(error) => eprintln!("Could not accept connection: {error}"),
         }
     }
 }

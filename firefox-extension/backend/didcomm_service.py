@@ -56,7 +56,7 @@ def decode_multikey_public_key(multikey: str, expected_prefix: bytes) -> bytes:
 def key_id(did: str, fragment: str) -> str:
     return f"{did}#{fragment}"
 
-# stellt sicher, dass die long-form vorhanden ist
+# Ensure a long-form DID is provided.
 def require_long_form_did(did: str) -> str:
     peer_4_prefix = "did:peer:4"
     encoded_parts = did.removeprefix(peer_4_prefix).split(":", maxsplit=1)
@@ -66,7 +66,7 @@ def require_long_form_did(did: str) -> str:
     return did
 
 
-# konvertiert public multikey zu JWK
+# Convert a public Multikey to a JWK.
 def public_jwk(public_multikey: str) -> dict:
     public_key = decode_multikey_public_key(public_multikey, X25519_PUBLIC_PREFIX)
 
@@ -77,7 +77,7 @@ def public_jwk(public_multikey: str) -> dict:
     }
 
 
-# Erstellt aus einem aufgeloesten Peer-DID-Dokument ein DIDComm-DIDDoc mit JWK-Schluesseln.
+# Build a DIDComm DIDDoc with JWK keys from a resolved Peer DID Document.
 def didcomm_did_doc(did: str, document: dict) -> DIDDoc:
     methods = {
         method["id"]: method
@@ -118,7 +118,7 @@ def didcomm_did_doc(did: str, document: dict) -> DIDDoc:
     )
 
 
-# Erstellt aus einem oeffentlichen und privaten Schluessel ein DIDComm-Secret im JWK-Format.
+# Build a DIDComm secret in JWK format from a public and private key.
 def jwk_secret(
     kid: str,
     public_multikey: str,
@@ -139,7 +139,7 @@ def jwk_secret(
     )
 
 
-# Erstellt das X25519-Schluesselaustausch-Secret eines Wallet-Eintrags fuer DIDComm.
+# Create the X25519 key-agreement secret for a wallet record.
 def didcomm_secrets(record: dict, did: str) -> list[Secret]:
     keys = record["keys"]
 
@@ -151,8 +151,8 @@ def didcomm_secrets(record: dict, did: str) -> list[Secret]:
         ),
     ]
  
-# Erstellt die DIDComm-Resolver aus der lokalen Wallet; extra_dids sind externe Long-Form-DIDs,
-# deren oeffentliche DID-Dokumente zusaetzlich fuer die Kommunikation aufgeloest werden.
+# Build DIDComm resolvers from the local wallet; extra_dids supplies external
+# long-form DIDs whose public DID Documents are also resolved for communication.
 def build_resolvers_config(extra_dids: list[str] | None = None) -> ResolversConfig:
     did_docs = []
     secrets = []
@@ -173,7 +173,7 @@ def build_resolvers_config(extra_dids: list[str] | None = None) -> ResolversConf
     )
 
 
-# Erstellt und verschluesselt eine DIDComm-Nachricht zwischen zwei Long-Form-DIDs.
+# Pack and encrypt a DIDComm message between two long-form DIDs.
 def pack_encrypted_message(
     sender_did: str,
     recipient_did: str,
@@ -212,7 +212,7 @@ def pack_encrypted_message(
     }
 
 
-# Entschluesselt eine DIDComm-Nachricht und gibt ihren Inhalt sowie Metadaten zurueck.
+# Decrypt a DIDComm message and return its content and metadata.
 def unpack_message(packed_message: dict | str, sender_did: str = "") -> dict:
     if sender_did:
         require_long_form_did(sender_did)

@@ -13,7 +13,7 @@ __pycache__/
 /zk-stark/stwo-cairo/
 
 
-# Betriebssystem und Editoren
+# Operating system and editor files
 .DS_Store
 Thumbs.db
 Desktop.ini
@@ -25,12 +25,12 @@ Desktop.ini
 *.swo
 *~
 
-# Weitere lokale Umgebungsdateien
+# Additional local environment files
 .env.*
 !.env.example
 venv/
 
-# Python-Werkzeug- und Coverage-Artefakte
+# Python tooling and coverage artifacts
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -39,13 +39,13 @@ htmlcov/
 coverage.xml
 *.egg-info/
 
-# Rust- und Profiling-Artefakte
+# Rust and profiling artifacts
 **/target/
 *.profraw
 *.profdata
 profile.pb.gz
 
-# Temporäre Dateien und Laufzeitausgaben
+# Temporary files and runtime output
 *.log
 *.tmp
 *.temp
@@ -53,11 +53,11 @@ profile.pb.gz
 *.receipt
 *.proof
 
-# Generierte DID-Wallets
+# Generated DID wallets
 /IdP/wallet.json
 /RP/wallet.json
 
-# Persönliche Arbeitsnotizen
+# Personal working notes
 /thoughts.md
 /thoughts.txt
 /todo

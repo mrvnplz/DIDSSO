@@ -5,7 +5,6 @@ const DIDSSO_SERVICE_HEADER = "X-DIDSSO-Service";
 const DIDSSO_REPLACE_ID_HEADER = "X-DIDSSO-Replace-ID";
 const DIDSSO_ERROR_HEADER = "X-DIDSSO-Error";
 const DIDSSO_STATE_HEADER = "X-DIDSSO-State";
-const REGISTER_PATH = "/register";
 const SSO_START_PATH = "/sso/start";
 const DID_LOGIN_START_PATH = "/did-login/start";
 const DID_SERVICE_URL = "http://127.0.0.1:8765";
@@ -508,24 +507,18 @@ browser.webRequest.onBeforeSendHeaders.addListener(
     const startsSso = details.method === "POST" && url.pathname === SSO_START_PATH;
     const startsDidLogin =
       details.method === "POST" && url.pathname === DID_LOGIN_START_PATH;
-    const registers = details.method === "POST" && url.pathname === REGISTER_PATH;
     if (
       url.hostname !== "127.0.0.1" ||
-      (!startsSso && !startsDidLogin && !registers)
+      (!startsSso && !startsDidLogin)
     ) {
       return {};
     }
 
     await managementSettingsReady;
-    if (registers && knownIdpOrigins.has(url.origin)) {
-      return {};
-    }
 
     let didForRequest;
     try {
-      const rpOrigin = startsSso || startsDidLogin
-        ? await rpOriginForRequest(details, url.origin)
-        : url.origin;
+      const rpOrigin = await rpOriginForRequest(details, url.origin);
       didForRequest = startsDidLogin
         ? await didForDirectLogin(rpOrigin)
         : await prepareDidForRp(rpOrigin);

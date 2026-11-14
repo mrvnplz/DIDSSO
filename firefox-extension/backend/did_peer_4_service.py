@@ -46,15 +46,15 @@ def raw_private_key_base58btc(private_key) -> str:
 def multikey_x25519(public_key: bytes) -> str:
     return base58btc_encode(b"\xec\x01" + public_key)
 
-# lädt daten aus wallet
+# Load wallet data.
 def load_wallet() -> dict:
     return load_json(WALLET_FILE, {"dids": []})
 
-# speichert die wallet einträge in json. Falls kein wallet file existiert wird eins erstellt
+# Save wallet entries as JSON, creating the file if it does not exist.
 def save_wallet(wallet: dict) -> None:
     save_json(WALLET_FILE, wallet)
 
-# erstellt öffentliche version des ausgewählten wallet eintrags
+# Create a public version of the selected wallet record.
 def public_record(record: dict) -> dict:
     public = {
         "name": record["name"],
@@ -69,15 +69,15 @@ def public_record(record: dict) -> dict:
 
     return public
 
-# returns all records form wallet as public records
+# Return all wallet records as public records.
 def list_public_records() -> list[dict]:
     return [public_record(record) for record in load_wallet()["dids"]]
 
-# extrahiert short form aus der long form
+# Extract the short-form DID from the long-form DID.
 def short_form_did(did: str) -> str:
     return did[: did.rfind(":")]
 
-# creates a peer did
+# Create a Peer DID.
 def create_did_peer_4_record(name: str) -> dict:
     agreement_key = x25519.X25519PrivateKey.generate()
 
@@ -114,7 +114,7 @@ def create_did_peer_4_record(name: str) -> dict:
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 
-# erstellt DID mit entsprechendem namen, speichert in wallet und gibt public_record zurück
+# Create a named DID, store it in the wallet, and return its public record.
 def create_and_store_did(name: str) -> dict:
     clean_name = name.strip()
     if not clean_name:
