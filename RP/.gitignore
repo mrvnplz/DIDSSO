@@ -1,10 +1,6 @@
 /target
-/idp_registrations.json
-/received_idp_messages.json
-/registration_proofs.json
-/sso_sessions.json
-/token_grants.json
-/user_accounts.json
-/didcomm-backend/wallet.json
+/data/
+# Also protect state files accidentally generated at the former location.
+/*.json
 /didcomm-backend/__pycache__/
 *.py[cod]

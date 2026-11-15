@@ -47,7 +47,8 @@ class ResetStateTests(unittest.TestCase):
             "# synthetic source file, not a running backend\n", encoding="utf-8"
         )
         self.default_roots = (
-            self.project / "IdP", self.project / "RP", self.project / "firefox-extension/data"
+            self.project / "IdP/data", self.project / "RP/data",
+            self.project / "firefox-extension/data",
         )
 
     @staticmethod
@@ -130,8 +131,8 @@ class ResetStateTests(unittest.TestCase):
     def test_default_reset_empties_actual_wallets_and_all_relationship_state(self) -> None:
         targets = self.seed()
         preserved = (
-            self.project / "IdP/registration_signing_key.json",
-            self.project / "IdP/registration_signing_key_risc0_p256.json",
+            self.project / "IdP/data/registration_signing_key.json",
+            self.project / "IdP/data/registration_signing_key_risc0_p256.json",
             self.project / "RP/data/authorization_config.json",
             self.project / "IdP/didcomm-backend/wallet.json",
             self.project / "RP/didcomm-backend/wallet.json",

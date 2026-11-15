@@ -55,14 +55,14 @@ from didcomm_service import message_thread_id, pack_encrypted_message, unpack_me
 HOST = os.environ.get("DIDSSO_BIND_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DIDSSO_PORT", "8771"))
 DATA_DIR = Path(
-    os.environ.get("DIDSSO_DATA_DIR", Path(__file__).resolve().parent.parent)
+    os.environ.get("DIDSSO_DATA_DIR", Path(__file__).resolve().parent.parent / "data")
 ).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 REGISTRATIONS_FILE = DATA_DIR / "idp_registrations.json"
 SSO_SESSIONS_FILE = DATA_DIR / "sso_sessions.json"
 USER_ACCOUNTS_FILE = DATA_DIR / "user_accounts.json"
 TOKEN_GRANTS_FILE = DATA_DIR / "token_grants.json"
-AUTHORIZATION_CONFIG_FILE = DATA_DIR / "data" / "authorization_config.json"
+AUTHORIZATION_CONFIG_FILE = DATA_DIR / "authorization_config.json"
 
 REGISTER_REQUEST_TYPE = "https://did-sso.local/protocol/rp-registration/1.0/request"
 REGISTER_ACCEPTED_TYPE = "https://did-sso.local/protocol/rp-registration/1.0/accepted"
@@ -132,6 +132,11 @@ def save_json(path: Path, value) -> None:
 
 
 def authorization_config() -> dict:
+    # Earlier Docker images stored this configuration one level below the
+    # shared data volume. Preserve it when the volume is reused after an update.
+    legacy_config = DATA_DIR / "data" / "authorization_config.json"
+    if not AUTHORIZATION_CONFIG_FILE.exists() and legacy_config.is_file():
+        legacy_config.replace(AUTHORIZATION_CONFIG_FILE)
     stored = load_json(AUTHORIZATION_CONFIG_FILE, {"scopes": ["profile", "email"]})
     return {"scopes": normalize_scopes(stored.get("scopes", []))}
 

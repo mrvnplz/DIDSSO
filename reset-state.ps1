@@ -63,8 +63,8 @@ foreach ($parameter in @("IdpDataDir", "RpDataDir", "WalletDataDir")) {
         throw "-$parameter must not be empty."
     }
 }
-$idpRoot = Resolve-DataDirectory $IdpDataDir (Join-Path $projectRoot "IdP")
-$rpRoot = Resolve-DataDirectory $RpDataDir (Join-Path $projectRoot "RP")
+$idpRoot = Resolve-DataDirectory $IdpDataDir (Join-Path $projectRoot "IdP\data")
+$rpRoot = Resolve-DataDirectory $RpDataDir (Join-Path $projectRoot "RP\data")
 $walletRoot = Resolve-DataDirectory $WalletDataDir (Join-Path $pluginRoot "data")
 $dataRoots = @($idpRoot, $rpRoot, $walletRoot)
 for ($i = 0; $i -lt $dataRoots.Count; $i++) {

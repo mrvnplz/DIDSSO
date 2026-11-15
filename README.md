@@ -96,9 +96,39 @@ local wallet backend is already started by Docker as `wallet-backend` on
    that the wallet backend is reachable.
 6. Leave automatic DID management enabled for the normal flow. The extension
    then selects an existing pairwise DID for the current RP or prepares a new
-   one when a DID registration or SSO flow is started.
-7. Open <http://127.0.0.1:3002> and start the desired DID registration or login
-   flow from the RP page.
+   one when Privacy-Enhanced SSO is started. Direct DID-Based Login uses an
+   existing RP-bound DID.
+7. Open <http://127.0.0.1:3002> and select **Privacy-Enhanced SSO** or
+   **Direct DID-Based Login** from the RP page.
 
 Firefox loads the extension only temporarily. After restarting Firefox, repeat
 steps 2 through 4.
+
+## Runtime Data
+
+Native execution stores persistent state separately for each participant:
+
+- `IdP/data/`: user accounts, browser sessions, DIDs and private keys,
+  registrations, Authorization Codes, token grants, and DID relationship state;
+- `RP/data/`: DIDs and private keys, IdP registrations and credentials,
+  authentication sessions, local user accounts, token grants, and scope configuration;
+- `firefox-extension/data/`: the user wallet, selected DID, authorization context,
+  and the latest SSO result.
+
+`DIDSSO_DATA_DIR` can override the data directory for an individual component.
+Containers use `/data`, backed by the separate `idp-data`, `rp-data`, and
+`wallet-data` volumes; the IdP web server and protocol backend share `idp-data`.
+Existing Docker scope configuration at `/data/data/authorization_config.json`
+is moved to `/data/authorization_config.json` on first use if the new file is absent.
+
+All component data directories, including the RP scope configuration, are
+excluded from Git and Docker build contexts. Without a stored scope
+configuration, the RP uses the built-in `profile` and `email` defaults. The
+administrator can change and persist these settings through the RP dashboard.
+Benchmark reports remain in `benchmark-results/` and are not participant
+runtime state.
+
+For native execution, `reset-state.ps1` resets account and protocol state in
+these directories while preserving registration signing keys and the RP scope
+configuration. Stop all prototype services before resetting. Use
+`reset-state.ps1 -ValidateOnly` to inspect the targets without changing data.

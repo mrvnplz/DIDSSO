@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 fn users_file() -> PathBuf {
     std::env::var_os("DIDSSO_DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_default()
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data"))
         .join("users.json")
 }
 
@@ -78,7 +78,11 @@ fn update_username_in(users: &mut [User], subject: &str, username: &str) -> bool
 
 fn save_users(users: &[User]) -> io::Result<()> {
     let users_json = serde_json::to_string_pretty(users).map_err(io::Error::other)?;
-    fs::write(users_file(), users_json)
+    let path = users_file();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, users_json)
 }
 
 #[cfg(test)]

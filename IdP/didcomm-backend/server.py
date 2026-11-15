@@ -60,7 +60,7 @@ from didcomm_service import message_thread_id, pack_encrypted_message, unpack_me
 HOST = os.environ.get("DIDSSO_BIND_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DIDSSO_PORT", "8770"))
 DATA_DIR = Path(
-    os.environ.get("DIDSSO_DATA_DIR", Path(__file__).resolve().parent.parent)
+    os.environ.get("DIDSSO_DATA_DIR", Path(__file__).resolve().parent.parent / "data")
 ).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PENDING_FILE = DATA_DIR / "pending_rp_requests.json"

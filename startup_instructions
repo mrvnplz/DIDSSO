@@ -15,6 +15,12 @@ override the shared IdP/RP backend interpreter.
 Reset state
 -----------
 
+Persistent native runtime data is stored in IdP\data, RP\data, and
+firefox-extension\data. DIDSSO_DATA_DIR overrides the data directory for one
+component; do not point different participants at the same directory. The IdP
+web server and its protocol backend must use the same IdP data directory.
+Registration signing keys and the RP scope configuration are preserved by reset.
+
 Preview and validate all reset targets without changing data:
 
     .\reset-state.ps1 -ValidateOnly

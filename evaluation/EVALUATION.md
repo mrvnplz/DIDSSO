@@ -6,7 +6,7 @@ extension. Proof measurements call the RISC Zero backend directly. STWO remains
 an additional implementation but is not part of the quantitative evaluation.
 The default is 100 recorded runs per series plus one unmeasured warm-up run.
 
-The German step-by-step procedure for validating, importing, plotting, and
+The step-by-step procedure for validating, importing, plotting, and
 interpreting the resulting CSV data is provided in
 [`BENCHMARK_ANALYSIS.md`](BENCHMARK_ANALYSIS.md).
 

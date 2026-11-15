@@ -2,15 +2,19 @@
 
 ```json
 {
-  "manifest_version": 2,
-  "name": "DIDSSO Browser Extension",
+  "manifest_version": 3,
+  "name": "DIDSSO-Extension",
   "version": "1.0.0",
   "permissions": [
     "storage",
     "webRequest",
     "webRequestBlocking",
-    "tabs",
-    "<all_urls>"
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://127.0.0.1/*",
+    "http://127.0.0.1:8765/*"
   ],
   "background": {
     "scripts": ["background.js"]
@@ -59,32 +63,20 @@ Allows access to information about browser tabs.
 
 This is useful when requests need to be linked to a specific tab or website. Without this permission, the extension can still see requests, but it gets less context about the tab.
 
-## `<all_urls>`
+## `host_permissions`
 
-Allows the extension to access requests from all websites.
+The current Manifest Version 3 extension is restricted to HTTP and HTTPS
+services at `127.0.0.1`, including the local user backend on port 8765. It does
+not request `<all_urls>` access. The JSON above shows the relevant permission
+and background-script fields; the complete manifest also configures the popup
+and Firefox extension identifier.
 
-This is very broad. It is useful during development and testing, but for a real extension the permission should be restricted as much as possible.
+Host permissions allow observation of the local prototype traffic. Within that
+scope, `background.js` adds DID headers only to POST requests to `/sso/start`
+and `/did-login/start`. Generic registration requests are not modified.
 
-Instead of:
-
-```json
-"<all_urls>"
-```
-
-you can specify targeted domains:
-
-```json
-"https://example.com/*"
-```
-
-or multiple domains:
-
-```json
-[
-  "https://example.com/*",
-  "https://api.example.com/*"
-]
-```
+Deployment at other addresses would require adapting both the host permissions
+and the local-address checks in the request handlers.
 
 ## Important Note
 

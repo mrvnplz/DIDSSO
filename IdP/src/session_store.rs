@@ -12,7 +12,7 @@ pub(crate) const SESSION_TTL_SECONDS: u64 = 60 * 60;
 fn sessions_file() -> PathBuf {
     std::env::var_os("DIDSSO_DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_default()
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data"))
         .join("sessions.json")
 }
 
@@ -98,7 +98,11 @@ fn load_sessions() -> Vec<SessionRecord> {
 fn save_sessions(sessions: &[SessionRecord]) {
     let contents =
         serde_json::to_string_pretty(sessions).expect("Could not serialize IdP sessions");
-    fs::write(sessions_file(), contents).expect("Could not persist IdP sessions");
+    let path = sessions_file();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("Could not create IdP data directory");
+    }
+    fs::write(path, contents).expect("Could not persist IdP sessions");
 }
 
 #[cfg(test)]

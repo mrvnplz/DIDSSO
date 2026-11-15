@@ -12,16 +12,16 @@
 **/.pytest_cache
 **/target
 **/artifacts
+**/data
 /zk-stark
 /benchmark-results
 
 # Runtime state, identities, private keys, receipts and user data must not be
 # copied into distributable images.
 IdP/*.json
-IdP/didcomm-backend/wallet.json
+IdP/didcomm-backend/*.json
 RP/*.json
-RP/didcomm-backend/wallet.json
-firefox-extension/data/*.json
+RP/didcomm-backend/*.json
 zk-risc0/*.json
 zk-stark/*.json
 

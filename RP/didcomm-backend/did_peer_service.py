@@ -12,7 +12,7 @@ from did_peer_4.input_doc import Multikey, input_doc_from_keys_and_services
 
 
 DATA_DIR = Path(
-    os.environ.get("DIDSSO_DATA_DIR", Path(__file__).resolve().parent.parent)
+    os.environ.get("DIDSSO_DATA_DIR", Path(__file__).resolve().parent.parent / "data")
 ).resolve()
 WALLET_FILE = DATA_DIR / "wallet.json"
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

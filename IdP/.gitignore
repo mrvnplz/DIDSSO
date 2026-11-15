@@ -1,15 +1,6 @@
 /target
-/registration_signing_key.json
-/registration_signing_key_risc0_p256.json
-/id_token_signing_key.json
-/sessions.json
-/sso_token_grants.json
-/users.json
-/oidc_codes.json
-/pending_rp_requests.json
-/registered_rps.json
-/sso_user_did_links.json
-/verified_registration_proofs.json
-/didcomm-backend/wallet.json
+/data/
+# Also protect state files accidentally generated at the former location.
+/*.json
 **/__pycache__/
 *.py[cod]

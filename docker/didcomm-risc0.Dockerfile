@@ -93,7 +93,6 @@ CMD ["python", "-u", "server.py"]
 FROM common AS rp
 COPY --from=risc0-builder /artifacts/r0vm /usr/local/bin/r0vm
 COPY RP/didcomm-backend /app/RP/didcomm-backend
-COPY RP/data/authorization_config.json /data/data/authorization_config.json
 WORKDIR /app/RP/didcomm-backend
 ENV DIDSSO_PORT=8771 \
     RISC0_PROVER=ipc \
