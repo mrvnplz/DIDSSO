@@ -276,11 +276,15 @@ def automatic_did_name(rp_origin: str) -> str:
     return f"Pairwise {parsed.netloc}"
 
 
-def select_did_for_service(service_origin: str) -> dict:
-    """Select an existing bound DID without creating one during navigation."""
+def select_did_for_service(service_origin: str, selected_did: str = "") -> dict:
+    """Select an existing bound DID, honoring an explicit manual selection."""
     service_origin = normalize_rp_origin(service_origin)
-    wallet = load_wallet()
-    service_record = bound_record_for_service(wallet, service_origin)
+    if selected_did:
+        service_record = find_record(selected_did)
+        if not binding_matches_rp(service_record.get("rpBinding") or {}, service_origin):
+            service_record = None
+    else:
+        service_record = bound_record_for_service(load_wallet(), service_origin)
     if service_record is None:
         return {
             "status": "not-bound",

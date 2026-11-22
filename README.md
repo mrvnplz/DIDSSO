@@ -70,6 +70,24 @@ from a TCP port mapping. The IdP must nevertheless be opened using **HTTPS**.
 
 The RP is available at <http://127.0.0.1:3002>.
 
+### Configure the IdP for SSO
+
+The RP uses `https://127.0.0.1:3001` as the browser-facing IdP origin by
+default. To change it, set `DIDSSO_IDP_WEB_PUBLIC_URL` in `.env` before RP
+registration and recreate the RP backend:
+
+```text
+docker compose up -d rp-didcomm
+```
+
+Copy the Master DID from the configured IdP homepage, submit the RP
+registration at the RP admin dashboard, and accept it at the IdP. The RP
+binds the first accepted IdP to the configured web origin. Users can then
+start SSO without entering a DID. After a full reset, repeat RP registration;
+the new Master DID is recorded automatically without changing `.env`.
+When working from source, rebuild the RP images using `compose.build.yaml`
+before starting them; changing the source does not update published images.
+
 Useful commands:
 
 ```text
@@ -129,6 +147,10 @@ Benchmark reports remain in `benchmark-results/` and are not participant
 runtime state.
 
 For native execution, `reset-state.ps1` resets account and protocol state in
-these directories while preserving registration signing keys and the RP scope
-configuration. Stop all prototype services before resetting. Use
-`reset-state.ps1 -ValidateOnly` to inspect the targets without changing data.
+these directories and removes both registration signing keys and the RP scope
+configuration, including its legacy nested copy if present. New signing keys
+are generated on demand, and the RP returns to its built-in `profile` and
+`email` scopes. Stop all prototype services before resetting and restart them
+afterwards. Docker volumes and browser-side extension storage are not reset by
+this local procedure. Use `reset-state.ps1 -ValidateOnly` or `-WhatIf` to inspect
+the planned writes and removals without changing data.

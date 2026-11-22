@@ -193,6 +193,7 @@ class DidPeerRequestHandler(BaseHTTPRequestHandler):
                         200,
                         select_did_for_service(
                             service_origin=str(request.get("serviceOrigin", "")),
+                            selected_did=str(request.get("selectedDid", "")),
                         ),
                     )
                 case "/wallet/prepare-for-rp":

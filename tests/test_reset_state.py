@@ -63,6 +63,12 @@ class ResetStateTests(unittest.TestCase):
         targets.update({rp / name: [] for name in RP_ARRAYS})
         targets.update({root / "wallet.json": {"dids": []} for root in roots})
         targets.update({wallet / name: {} for name in WALLET_OBJECTS})
+        targets.update({
+            idp / "registration_signing_key.json": None,
+            idp / "registration_signing_key_risc0_p256.json": None,
+            rp / "authorization_config.json": None,
+            rp / "data/authorization_config.json": None,
+        })
         return targets
 
     def seed(self, roots=None, *, include_user_wallet=True) -> dict[Path, object]:
@@ -111,9 +117,12 @@ class ResetStateTests(unittest.TestCase):
         return result
 
     def assert_reset(self, targets: dict[Path, object]) -> None:
-        self.assertEqual(len(targets), 17)
+        self.assertEqual(len(targets), 21)
         for path, expected in targets.items():
             with self.subTest(path=path.relative_to(self.sandbox)):
+                if expected is None:
+                    self.assertFalse(path.exists())
+                    continue
                 self.assertEqual(json.loads(path.read_text(encoding="utf-8-sig")), expected)
                 self.assertFalse(path.read_bytes().startswith(b"\xef\xbb\xbf"))
         self.assertFalse(list(self.sandbox.rglob("*.tmp")))
@@ -131,9 +140,6 @@ class ResetStateTests(unittest.TestCase):
     def test_default_reset_empties_actual_wallets_and_all_relationship_state(self) -> None:
         targets = self.seed()
         preserved = (
-            self.project / "IdP/data/registration_signing_key.json",
-            self.project / "IdP/data/registration_signing_key_risc0_p256.json",
-            self.project / "RP/data/authorization_config.json",
             self.project / "IdP/didcomm-backend/wallet.json",
             self.project / "RP/didcomm-backend/wallet.json",
         )
@@ -147,6 +153,13 @@ class ResetStateTests(unittest.TestCase):
         self.assert_reset(targets)
         for path, content in unchanged.items():
             self.assertEqual(path.read_bytes(), content)
+
+    def test_repeated_reset_does_not_create_empty_keys_or_scope_configuration(self) -> None:
+        targets = self.seed()
+        self.invoke()
+        self.assert_reset(targets)
+        self.invoke()
+        self.assert_reset(targets)
 
     def test_validate_only_preserves_all_existing_files(self) -> None:
         self.seed()
@@ -226,6 +239,24 @@ class ResetStateTests(unittest.TestCase):
         self.seed(include_user_wallet=False)
         invalid_target = self.default_roots[2] / "sso_result.json"
         invalid_target.mkdir(parents=True)
+        before = self.snapshot()
+        self.invoke(succeeds=False)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_invalid_signing_key_target_fails_before_reset_or_removal(self) -> None:
+        self.seed()
+        invalid_target = self.default_roots[0] / "registration_signing_key_risc0_p256.json"
+        invalid_target.unlink()
+        invalid_target.mkdir()
+        before = self.snapshot()
+        self.invoke(succeeds=False)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_invalid_legacy_scope_target_fails_before_reset_or_key_removal(self) -> None:
+        self.seed()
+        invalid_target = self.default_roots[1] / "data/authorization_config.json"
+        invalid_target.unlink()
+        invalid_target.mkdir()
         before = self.snapshot()
         self.invoke(succeeds=False)
         self.assertEqual(self.snapshot(), before)

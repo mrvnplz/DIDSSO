@@ -1,7 +1,6 @@
 .agents/
 .env
 /DOCKER.md
-/benchmark-results/
 .venv/
 .venv-didcomm/
 .venv-evaluation/

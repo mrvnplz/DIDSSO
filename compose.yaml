@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     environment:
       DIDSSO_DIDCOMM_ENDPOINT: http://rp-didcomm:8771/didcomm/inbox
-      DIDSSO_IDP_WEB_PUBLIC_URL: https://127.0.0.1:3001
+      DIDSSO_IDP_WEB_PUBLIC_URL: "${DIDSSO_IDP_WEB_PUBLIC_URL:-https://127.0.0.1:3001}"
       DIDSSO_RP_WEB_PUBLIC_URL: http://127.0.0.1:3002
       DIDSSO_WALLET_BACKEND_URL: http://wallet-backend:8765
     ports:

@@ -1,0 +1,264 @@
+{
+  "created_at": "2026-11-17T21:05:03.528146+00:00",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+  "proof_backend": "risc0",
+  "requested_runs": 30,
+  "unmeasured_warmup_runs": 1,
+  "standard_deviation": "sample standard deviation",
+  "status": "completed",
+  "completed_at": "2026-11-17T21:33:28.296484+00:00",
+  "results": [
+    {
+      "backend": "risc0",
+      "excluded_setup_or_credential_seconds": 0.01937690000022485,
+      "unmeasured_warmup_runs": 1,
+      "runs": [
+        {
+          "run": 1,
+          "prove_seconds": 51.57262519999995,
+          "verify_seconds": 0.022596599999815226,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 2,
+          "prove_seconds": 58.63718680000011,
+          "verify_seconds": 0.02246930000001157,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 3,
+          "prove_seconds": 53.98855239999966,
+          "verify_seconds": 0.022046399999908317,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 4,
+          "prove_seconds": 56.4600719,
+          "verify_seconds": 0.022253399999954127,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 5,
+          "prove_seconds": 57.36908919999996,
+          "verify_seconds": 0.023206500000014785,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 6,
+          "prove_seconds": 54.66913680000016,
+          "verify_seconds": 0.022173400000156107,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 7,
+          "prove_seconds": 53.633783199999925,
+          "verify_seconds": 0.023170200000095065,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 8,
+          "prove_seconds": 53.53162859999975,
+          "verify_seconds": 0.022144900000057532,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 9,
+          "prove_seconds": 53.07967319999989,
+          "verify_seconds": 0.023135399999773654,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 10,
+          "prove_seconds": 53.317056200000025,
+          "verify_seconds": 0.022028699999737,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 11,
+          "prove_seconds": 52.93827879999981,
+          "verify_seconds": 0.03146280000009938,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 12,
+          "prove_seconds": 53.14702159999979,
+          "verify_seconds": 0.022301900000002206,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 13,
+          "prove_seconds": 52.519097599999895,
+          "verify_seconds": 0.02233589999968899,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 14,
+          "prove_seconds": 53.430645299999924,
+          "verify_seconds": 0.022246500000164815,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 15,
+          "prove_seconds": 55.40354739999975,
+          "verify_seconds": 0.022566500000266387,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 16,
+          "prove_seconds": 56.710991699999795,
+          "verify_seconds": 0.022301700000298297,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 17,
+          "prove_seconds": 59.560919399999875,
+          "verify_seconds": 0.022297499999694992,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 18,
+          "prove_seconds": 51.80745590000015,
+          "verify_seconds": 0.022254699999848526,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 19,
+          "prove_seconds": 56.3988817999998,
+          "verify_seconds": 0.02280350000000908,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 20,
+          "prove_seconds": 53.259445199999845,
+          "verify_seconds": 0.022065500000280736,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 21,
+          "prove_seconds": 57.48531090000006,
+          "verify_seconds": 0.023005600000033155,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 22,
+          "prove_seconds": 54.0910315000001,
+          "verify_seconds": 0.023133700000016688,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 23,
+          "prove_seconds": 54.965446999999585,
+          "verify_seconds": 0.02177269999992859,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 24,
+          "prove_seconds": 53.68667839999944,
+          "verify_seconds": 0.02259409999987838,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 25,
+          "prove_seconds": 55.03197960000034,
+          "verify_seconds": 0.02201599999989412,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 26,
+          "prove_seconds": 56.241922899999736,
+          "verify_seconds": 0.02234850000058941,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 27,
+          "prove_seconds": 57.77829219999967,
+          "verify_seconds": 0.022385299999768904,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 28,
+          "prove_seconds": 53.179541900000004,
+          "verify_seconds": 0.02217469999959576,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 29,
+          "prove_seconds": 53.4604718999999,
+          "verify_seconds": 0.022411299999475887,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        },
+        {
+          "run": 30,
+          "prove_seconds": 58.804657300000144,
+          "verify_seconds": 0.02981629999976576,
+          "receipt_size_bytes": 256738,
+          "proof_envelope_size_bytes": 342736
+        }
+      ],
+      "prove_seconds": {
+        "count": 30,
+        "mean": 54.8720140599999,
+        "median": 54.03979194999988,
+        "sample_standard_deviation": 2.1769014671895253,
+        "minimum": 51.57262519999995,
+        "maximum": 59.560919399999875
+      },
+      "verify_seconds": {
+        "count": 30,
+        "mean": 0.022983983333294114,
+        "median": 0.0223422000001392,
+        "sample_standard_deviation": 0.0021258016153065423,
+        "minimum": 0.02177269999992859,
+        "maximum": 0.03146280000009938
+      },
+      "receipt_size_bytes": {
+        "count": 30,
+        "mean": 256738.0,
+        "median": 256738.0,
+        "sample_standard_deviation": 0.0,
+        "minimum": 256738,
+        "maximum": 256738
+      },
+      "proof_envelope_size_bytes": {
+        "count": 30,
+        "mean": 342736.0,
+        "median": 342736.0,
+        "sample_standard_deviation": 0.0,
+        "minimum": 342736,
+        "maximum": 342736
+      },
+      "excluded_verifier_start_seconds": 0.5724205000001348
+    }
+  ],
+  "errors": []
+}

@@ -589,14 +589,15 @@ class ProtocolBenchmark:
     def run_sso(self, run: int) -> dict[str, Any]:
         from selenium.webdriver.common.by import By
 
-        self.driver.get(endpoint(self.arguments.rp_url, "/did-sso"))
+        start_button = "#sso-start-button"
+        self.driver.get(self.arguments.rp_url)
         wait_for(
             self.driver,
-            lambda current: current.find_elements(By.CSS_SELECTOR, "#sso-form button"),
+            lambda current: element_ready(current, start_button),
             self.arguments.timeout,
-            "RP DID registration form was not displayed",
+            "RP Privacy-Enhanced SSO button was not available",
         )
-        self.driver.find_element(By.CSS_SELECTOR, "#sso-form button").click()
+        self.driver.find_element(By.CSS_SELECTOR, start_button).click()
         wait_for_consent(
             self.driver,
             email=self.arguments.email,
@@ -812,7 +813,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=("all", "sso", "direct-access", "direct-refresh"),
         default="all",
     )
-    parser.add_argument("--runs", type=int, default=100)
+    parser.add_argument("--runs", type=int, default=30)
     parser.add_argument("--warmup-runs", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--rp-url", default="http://127.0.0.1:3002")

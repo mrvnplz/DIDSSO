@@ -7,7 +7,7 @@ param(
     [string] $Scenario = "all",
 
     [ValidateRange(1, 1000)]
-    [int] $Runs = 100,
+    [int] $Runs = 30,
 
     [ValidateRange(0, 10)]
     [int] $WarmupRuns = 1,

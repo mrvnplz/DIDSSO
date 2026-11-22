@@ -208,7 +208,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark the RISC Zero proof backend used by DIDSSO."
     )
-    parser.add_argument("--runs", type=int, default=100)
+    parser.add_argument("--runs", type=int, default=30)
     parser.add_argument("--warmup-runs", type=int, default=1)
     parser.add_argument("--output", type=Path)
     arguments = parser.parse_args()

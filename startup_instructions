@@ -19,7 +19,11 @@ Persistent native runtime data is stored in IdP\data, RP\data, and
 firefox-extension\data. DIDSSO_DATA_DIR overrides the data directory for one
 component; do not point different participants at the same directory. The IdP
 web server and its protocol backend must use the same IdP data directory.
-Registration signing keys and the RP scope configuration are preserved by reset.
+Reset also removes the RISC Zero and STWO registration signing keys and the RP
+scope configuration. Keys are regenerated on demand, and the RP uses its
+profile/email scope defaults. Docker volumes and Firefox extension storage are
+not reset by the local procedure. Stop all services before resetting and
+restart them afterwards.
 
 Preview and validate all reset targets without changing data:
 
@@ -60,6 +64,16 @@ Start the services
 5. Run .\start.ps1 in firefox-extension\backend.
 6. Load firefox-extension\manifest.json as a temporary Firefox add-on at
    about:debugging#/runtime/this-firefox.
+
+The RP uses https://127.0.0.1:3001 as the browser-facing IdP origin. To
+override it, set this variable before starting the RP backend:
+
+    $env:DIDSSO_IDP_WEB_PUBLIC_URL = "https://127.0.0.1:3001"
+
+Use the Master DID from that IdP's homepage to register the RP in the RP
+admin dashboard, then accept the registration at the IdP. The RP stores the
+Master DID with the configured web origin after acceptance. After a full
+reset, repeat registration without changing the startup configuration.
 
 The DIDComm start scripts configure the selected proof backend and the larger
 Authlib JWE ciphertext limit. RISC Zero and STWO continue to use their WSL

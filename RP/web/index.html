@@ -11,38 +11,61 @@
     <main>
         <section class="login-panel">
             <h1>RP Login</h1>
-            <p class="helper-text">Use DID Registration to authorize access. Later, DID Login uses your existing binding and retrieves your latest profile data without another proof.</p>
+            <p class="helper-text">Use Privacy-Enhanced SSO to authorize access. On later visits, DID Login uses your existing DID and retrieves your latest profile data without another registration proof.</p>
 
-            <a class="sso-button" href="/did-sso">DID Registration</a>
+            <button id="sso-start-button" type="button" class="sso-button">Privacy-Enhanced SSO</button>
             <button id="did-login-button" type="button" class="secondary-button">DID Login</button>
-            <p class="helper-text" id="did-login-status"></p>
+            <p class="helper-text" id="login-status" role="status" hidden></p>
         </section>
     </main>
 
     <script>
+        const ssoButton = document.getElementById("sso-start-button");
         const didLoginButton = document.getElementById("did-login-button");
-        const didLoginStatus = document.getElementById("did-login-status");
+        const loginStatus = document.getElementById("login-status");
 
-        didLoginButton.addEventListener("click", async () => {
+        async function startLogin(path, pendingMessage, failureMessage, destination) {
+            ssoButton.disabled = true;
             didLoginButton.disabled = true;
-            didLoginStatus.textContent = "Sending DID challenge...";
+            loginStatus.hidden = false;
+            loginStatus.textContent = pendingMessage;
 
             try {
-                const response = await fetch("http://127.0.0.1:8771/did-login/start", {
+                const response = await fetch("http://127.0.0.1:8771" + path, {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({}),
+                    body: "{}",
                 });
                 const data = await response.json();
                 if (!response.ok) {
-                    throw new Error(data.error || "DID login failed");
+                    throw new Error(data.error || failureMessage);
                 }
-                window.location.href = `/sso/wait?session_id=${encodeURIComponent(data.session_id)}`;
+                const url = destination(data);
+                if (!url) {
+                    throw new Error("The RP backend did not return a login destination.");
+                }
+                window.location.href = url;
             } catch (error) {
-                didLoginStatus.textContent = error.message;
+                loginStatus.textContent = error.message;
+                ssoButton.disabled = false;
                 didLoginButton.disabled = false;
             }
-        });
+        }
+
+        ssoButton.addEventListener("click", () => startLogin(
+            "/sso/start",
+            "Starting Privacy-Enhanced SSO...",
+            "Privacy-Enhanced SSO could not be started.",
+            data => data.authorization_request_url,
+        ));
+        didLoginButton.addEventListener("click", () => startLogin(
+            "/did-login/start",
+            "Sending DID challenge...",
+            "DID login failed.",
+            data => data.session_id
+                ? `/sso/wait?session_id=${encodeURIComponent(data.session_id)}`
+                : null,
+        ));
     </script>
 </body>
 </html>

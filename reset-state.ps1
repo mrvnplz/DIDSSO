@@ -117,7 +117,15 @@ $stateFiles = @(
     [pscustomobject]@{ Path = Join-Path $walletRoot "wallet.json"; Content = '{"dids":[]}' },
     [pscustomobject]@{ Path = Join-Path $walletRoot "selected_did.json"; Content = "{}" },
     [pscustomobject]@{ Path = Join-Path $walletRoot "sso_auth_request.json"; Content = "{}" },
-    [pscustomobject]@{ Path = Join-Path $walletRoot "sso_result.json"; Content = "{}" }
+    [pscustomobject]@{ Path = Join-Path $walletRoot "sso_result.json"; Content = "{}" },
+    # Null content means removal, not an empty JSON key/configuration file.
+    # Signing keys are regenerated on demand; absent scope configuration uses
+    # the RP's built-in defaults. Clear the legacy scope path as well so that
+    # the backend cannot restore it after resetting the current configuration.
+    [pscustomobject]@{ Path = Join-Path $idpRoot "registration_signing_key.json"; Content = $null },
+    [pscustomobject]@{ Path = Join-Path $idpRoot "registration_signing_key_risc0_p256.json"; Content = $null },
+    [pscustomobject]@{ Path = Join-Path $rpRoot "authorization_config.json"; Content = $null },
+    [pscustomobject]@{ Path = Join-Path $rpRoot "data\authorization_config.json"; Content = $null }
 )
 
 foreach ($stateFile in $stateFiles) {
@@ -151,7 +159,9 @@ foreach ($stateFile in $stateFiles) {
         }
         $cursor = Split-Path -Parent $cursor
     }
-    $stateFile.Content | ConvertFrom-Json | Out-Null
+    if ($null -ne $stateFile.Content) {
+        $stateFile.Content | ConvertFrom-Json | Out-Null
+    }
 }
 
 Write-Warning "Local file reset only: Docker volumes and Firefox extension storage are not reset."
@@ -159,7 +169,8 @@ Write-Warning "Stop all IdP/RP web and protocol backends and the wallet backend 
 
 if ($ValidateOnly) {
     $stateFiles |
-        Select-Object @{ Name = "Exists"; Expression = { Test-Path -LiteralPath $_.Path } }, Path |
+        Select-Object @{ Name = "Exists"; Expression = { Test-Path -LiteralPath $_.Path } },
+            @{ Name = "Action"; Expression = { if ($null -eq $_.Content) { "Remove" } else { "Reset" } } }, Path |
         Format-Table -AutoSize
     Write-Host "Validated $($stateFiles.Count) reset targets; no files were changed."
     return
@@ -167,8 +178,19 @@ if ($ValidateOnly) {
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $writtenFiles = [System.Collections.Generic.List[string]]::new()
+$removedFiles = [System.Collections.Generic.List[string]]::new()
 foreach ($stateFile in $stateFiles) {
-    if (-not $PSCmdlet.ShouldProcess($stateFile.Path, "Reset JSON state")) {
+    $removeFile = $null -eq $stateFile.Content
+    $operation = if ($removeFile) { "Remove generated key/configuration file" } else { "Reset JSON state" }
+    if (-not $PSCmdlet.ShouldProcess($stateFile.Path, $operation)) {
+        continue
+    }
+
+    if ($removeFile) {
+        if (Test-Path -LiteralPath $stateFile.Path -PathType Leaf) {
+            Remove-Item -LiteralPath $stateFile.Path -Force
+            $removedFiles.Add($stateFile.Path)
+        }
         continue
     }
 
@@ -198,13 +220,20 @@ $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 foreach ($file in $writtenFiles) {
     [System.IO.File]::ReadAllText($file, $utf8Strict) | ConvertFrom-Json | Out-Null
 }
+foreach ($file in $removedFiles) {
+    if (Test-Path -LiteralPath $file) {
+        throw "Reset file was not removed: $file"
+    }
+}
 
-if ($writtenFiles.Count -eq 0) {
+if ($writtenFiles.Count -eq 0 -and $removedFiles.Count -eq 0) {
     Write-Host "No state files were changed."
     return
 }
 
 Write-Host "Reset $($writtenFiles.Count) state files successfully."
+Write-Host "Removed $($removedFiles.Count) generated key/configuration files."
 Write-Host "Restart IdP, RP and firefox-extension/backend before testing again."
 Write-Host "Clear stale Firefox extension state separately before selecting a newly created DID."
-Write-Host "Registration-proof signing keys and RP scope configuration were preserved."
+Write-Host "Missing registration-proof signing keys are regenerated on demand."
+Write-Host "Missing RP scope configuration uses the profile/email defaults."

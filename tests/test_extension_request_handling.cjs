@@ -13,12 +13,17 @@ const IDP_ORIGIN = "https://127.0.0.1:3001";
 const USER_DID = "did:peer:test-user";
 const flushAsyncWork = () => new Promise(setImmediate);
 
-async function createExtension({ knownIdpOrigins = [] } = {}) {
+async function createExtension({
+  knownIdpOrigins = [],
+  automaticDidManagement = true,
+  selectedDid = USER_DID,
+  boundDid = USER_DID,
+} = {}) {
   const listeners = {};
   const requests = [];
   const storage = {
-    selectedDid: USER_DID,
-    automaticDidManagement: true,
+    selectedDid,
+    automaticDidManagement,
     knownIdpOrigins,
   };
   const event = (name) => ({
@@ -59,11 +64,17 @@ async function createExtension({ knownIdpOrigins = [] } = {}) {
           result = { enabled: false };
           break;
         case "/wallet/prepare-for-rp":
-        case "/wallet/select-for-service":
           result = { selectedDid: { did: USER_DID } };
           break;
+        case "/wallet/select-for-service":
+          result = { selectedDid: { did: boundDid } };
+          break;
         case "/sso/current-auth-request":
-          result = { sessionId: "test-session", state: "test-state" };
+          result = {
+            sessionId: "test-session",
+            state: "test-state",
+            authorizationUrl: `${IDP_ORIGIN}/sso?state=test-state`,
+          };
           break;
         default:
           throw new Error(`Unexpected backend request: ${requestPath}`);
@@ -82,7 +93,7 @@ function outgoingRequest(url, method = "POST") {
     url,
     method,
     tabId: 7,
-    originUrl: `${RP_ORIGIN}/did-sso`,
+    originUrl: `${RP_ORIGIN}/`,
     requestHeaders: [{ name: "Content-Type", value: "application/json" }],
   };
 }
@@ -128,6 +139,28 @@ test("direct login selects a bound DID without requesting DID preparation", asyn
   );
   assert.equal(extension.requests.length, 1);
   assert.equal(extension.requests[0].path, "/wallet/select-for-service");
+});
+
+test("manual direct login registers the selected DID and observed RP origin", async () => {
+  const manualDid = "did:peer:manually-selected";
+  const extension = await createExtension({
+    automaticDidManagement: false,
+    selectedDid: manualDid,
+    boundDid: manualDid,
+  });
+  const result = await extension.listeners.beforeSendHeaders(
+    outgoingRequest("http://127.0.0.1:8771/did-login/start")
+  );
+  assert.equal(extension.requests.length, 1);
+  assert.equal(extension.requests[0].path, "/wallet/select-for-service");
+  assert.deepEqual(JSON.parse(extension.requests[0].options.body), {
+    serviceOrigin: RP_ORIGIN,
+    selectedDid: manualDid,
+  });
+  assert.equal(
+    result.requestHeaders.find((header) => header.name === "X-DIDSSO-DID").value,
+    manualDid,
+  );
 });
 
 for (const [url, method] of [

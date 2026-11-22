@@ -100,7 +100,7 @@ RP_WEB_BASE_URL = os.environ.get(
 ).rstrip("/")
 IDP_WEB_PUBLIC_URL = os.environ.get(
     "DIDSSO_IDP_WEB_PUBLIC_URL", "https://127.0.0.1:3001"
-).rstrip("/")
+).strip().rstrip("/")
 WALLET_BACKEND_URL = os.environ.get(
     "DIDSSO_WALLET_BACKEND_URL", "http://127.0.0.1:8765"
 ).rstrip("/")
@@ -259,14 +259,36 @@ def registrations_by_status() -> dict:
     }
 
 
-def accepted_registration_count_for_active_backend() -> int:
-    return sum(
-        1
-        for registration in load_json(REGISTRATIONS_FILE, [])
+def sso_registrations_for_origin(registrations: list[dict], web_origin: str) -> list[dict]:
+    return [
+        registration
+        for registration in registrations
         if registration.get("status") == "accepted"
-        and registration.get("credential", {}).get("format")
-        == ACTIVE_CREDENTIAL_FORMAT
+        and registration.get("idp_web_origin") == web_origin
+        and registration.get("idp_master_did")
+    ]
+
+
+def sso_registration_candidates() -> tuple[str, list[dict]]:
+    web_origin = configured_idp_web_origin()
+    registrations = sso_registrations_for_origin(
+        load_json(REGISTRATIONS_FILE, []), web_origin
     )
+    if len({registration["idp_master_did"] for registration in registrations}) > 1:
+        raise ValueError("Multiple IdPs are associated with the configured SSO web origin")
+    return web_origin, [
+        registration
+        for registration in registrations
+        if registration.get("credential", {}).get("format") == ACTIVE_CREDENTIAL_FORMAT
+    ]
+
+
+def accepted_registration_count_for_active_backend() -> int:
+    try:
+        _, registrations = sso_registration_candidates()
+    except ValueError:
+        return 0
+    return len(registrations)
 
 
 def update_registration_from_idp_message(sender_did: str, message: dict) -> None:
@@ -295,10 +317,16 @@ def update_registration_from_idp_message(sender_did: str, message: dict) -> None
 
     registration["idp_master_did"] = idp_master_did
     if message_type == REGISTER_ACCEPTED_TYPE:
+        web_origin = configured_idp_web_origin()
+        bound_registrations = sso_registrations_for_origin(registrations, web_origin)
         registration["status"] = "accepted"
         registration["accepted_at"] = body.get("accepted_at", utc_now())
         registration["credential"] = body.get("credential", {})
         registration["rp_pairwise_did"] = ensure_idp_pairwise_did(idp_master_did)
+        # A later registration for a different IdP must not replace the active
+        # IdP at this web origin.
+        if all(item["idp_master_did"] == idp_master_did for item in bound_registrations):
+            registration["idp_web_origin"] = web_origin
     else:
         registration["status"] = "rejected"
         registration["rejected_at"] = body.get("rejected_at", utc_now())
@@ -307,12 +335,12 @@ def update_registration_from_idp_message(sender_did: str, message: dict) -> None
     save_json(REGISTRATIONS_FILE, registrations)
 
 
-def accepted_registration_for_idp(idp_master_did: str | None = None) -> dict:
+def accepted_registration_for_idp(idp_master_did: str) -> dict:
     registrations = load_json(REGISTRATIONS_FILE, [])
     for registration in reversed(registrations):
         if registration.get("status") != "accepted":
             continue
-        if idp_master_did and registration.get("idp_master_did") != idp_master_did:
+        if registration.get("idp_master_did") != idp_master_did:
             continue
         credential = registration.get("credential", {})
         if credential.get("format") == ACTIVE_CREDENTIAL_FORMAT:
@@ -324,7 +352,7 @@ def accepted_registration_for_idp(idp_master_did: str | None = None) -> dict:
             return registration
 
     raise ValueError(
-        f"No accepted IdP registration with a {PROOF_BACKEND.upper()} credential found"
+        f"No accepted registration with a {PROOF_BACKEND.upper()} credential found for the selected IdP"
     )
 
 
@@ -712,8 +740,36 @@ def complete_direct_login(sender_did: str, message: dict) -> None:
         raise
 
 
-def create_sso_session(user_pairwise_did: str, idp_master_did: str | None = None) -> dict:
-    registration = accepted_registration_for_idp(idp_master_did)
+def configured_idp_web_origin() -> str:
+    address_error = "DIDSSO_IDP_WEB_PUBLIC_URL must be an HTTPS origin without a path"
+    try:
+        origin = urlparse(IDP_WEB_PUBLIC_URL)
+        _ = origin.port
+    except ValueError as error:
+        raise ValueError(address_error) from error
+    if (
+        origin.scheme != "https"
+        or not origin.hostname
+        or origin.username is not None
+        or origin.password is not None
+        or origin.path
+        or origin.params
+        or origin.query
+        or origin.fragment
+        or any(char.isspace() or char == "\\" for char in IDP_WEB_PUBLIC_URL)
+    ):
+        raise ValueError(address_error)
+    return IDP_WEB_PUBLIC_URL
+
+
+def create_sso_session(user_pairwise_did: str) -> dict:
+    idp_web_url, registrations = sso_registration_candidates()
+    if not registrations:
+        raise ValueError(
+            f"No accepted {PROOF_BACKEND.upper()} registration is bound to the configured "
+            "IdP web origin. Register the RP with that IdP before starting SSO."
+        )
+    registration = registrations[-1]
     rp_master_did = did_named("rp-master")
     rp_pairwise_did = registration["rp_pairwise_did"]
     session_id = f"sso-{uuid.uuid4()}"
@@ -730,7 +786,7 @@ def create_sso_session(user_pairwise_did: str, idp_master_did: str | None = None
             "scope": " ".join(scopes),
         }
     )
-    authorization_request_url = f"{IDP_WEB_PUBLIC_URL}/sso?{authorization_query}"
+    authorization_request_url = f"{idp_web_url}/sso?{authorization_query}"
     session = {
         "session_id": session_id,
         "status": "auth_request_created",
@@ -1610,15 +1666,15 @@ class RpDidCommHandler(BaseHTTPRequestHandler):
                 return
 
             if self.path == "/sso/start":
+                if "idpMasterDid" in request:
+                    self.send_json(400, {"error": "The SSO identity provider is configured by the RP"})
+                    return
                 user_pairwise_did = self.headers.get(DIDSSO_DID_HEADER, "").strip()
                 if not user_pairwise_did:
                     raise ValueError(
                         "The DIDSSO plugin did not attach a pairwise DID"
                     )
-                session = create_sso_session(
-                    user_pairwise_did=user_pairwise_did,
-                    idp_master_did=request.get("idpMasterDid") or None,
-                )
+                session = create_sso_session(user_pairwise_did)
                 self.send_json(200, session)
                 return
 

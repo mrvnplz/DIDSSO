@@ -59,7 +59,6 @@ fn static_route(path: &str) -> Option<(&'static str, &'static str)> {
     match path {
         "/" => Some(("web/index.html", "text/html; charset=utf-8")),
         "/admin" => Some(("web/admin.html", "text/html; charset=utf-8")),
-        "/did-sso" => Some(("web/did-sso.html", "text/html; charset=utf-8")),
         "/sso/wait" => Some(("web/sso-wait.html", "text/html; charset=utf-8")),
         "/user" => Some(("web/user.html", "text/html; charset=utf-8")),
         "/style.css" => Some(("web/style.css", "text/css; charset=utf-8")),

@@ -126,14 +126,18 @@ async function selectDidForService(origin) {
   }
 }
 
-async function boundDidForRp(origin) {
+async function boundDidForRp(origin, manualDid = "") {
+  const selection = { serviceOrigin: origin };
+  if (manualDid) {
+    selection.selectedDid = manualDid;
+  }
   const response = await fetch(`${DID_SERVICE_URL}/wallet/select-for-service`, {
     method: "POST",
     headers: {
       "Accept": "application/json",
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ serviceOrigin: origin })
+    body: JSON.stringify(selection)
   });
   const data = await response.json();
 
@@ -141,7 +145,9 @@ async function boundDidForRp(origin) {
     throw new Error(data.error || "Could not select the bound DID for this RP");
   }
   if (!data.selectedDid?.did) {
-    throw new Error("No pairwise DID is bound to this RP yet");
+    throw new Error(manualDid
+      ? "The selected DID is not bound to this RP"
+      : "No pairwise DID is bound to this RP yet");
   }
 
   selectedDid = data.selectedDid.did;
@@ -160,7 +166,7 @@ async function didForDirectLogin(origin) {
   if (!manualDid) {
     throw new Error("No DID is selected for manual DID management");
   }
-  return manualDid;
+  return boundDidForRp(origin, manualDid);
 }
 
 async function prepareDidForRp(origin) {
@@ -251,6 +257,10 @@ async function beginSsoAuthentication(details, origin) {
     const authRequest = await response.json();
 
     if (!response.ok || !authRequest.sessionId) {
+      return;
+    }
+
+    if (httpOrigin(authRequest.authorizationUrl) !== origin) {
       return;
     }
 

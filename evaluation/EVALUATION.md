@@ -4,7 +4,7 @@ The evaluation scripts implement the measurements defined in the thesis
 methodology. Protocol measurements use a real Firefox instance and the Firefox
 extension. Proof measurements call the RISC Zero backend directly. STWO remains
 an additional implementation but is not part of the quantitative evaluation.
-The default is 100 recorded runs per series plus one unmeasured warm-up run.
+The default is 30 recorded runs per series plus one unmeasured warm-up run.
 
 The step-by-step procedure for validating, importing, plotting, and
 interpreting the resulting CSV data is provided in
@@ -20,6 +20,11 @@ runtime:
 .\evaluation\setup-evaluation.ps1
 ```
 
+Build the current RISC Zero release host in WSL before starting the services
+(see [the RISC Zero setup guide](../zk-risc0/README.md)). The WSL wrapper builds
+the host only when the executable is missing; it does not refresh an existing
+binary after source changes.
+
 Firefox must be installed. Selenium Manager obtains a compatible geckodriver
 the first time the browser benchmark is started. Browser and driver startup are
 completed before any measured operation.
@@ -31,7 +36,8 @@ some packages than the DIDComm libraries in `.venv-didcomm` support.
 The benchmark expects:
 
 - an IdP user account;
-- an accepted RP registration for RISC Zero;
+- an accepted RP registration for RISC Zero at the IdP whose HTTPS origin
+  is configured on the RP backend (`DIDSSO_IDP_WEB_PUBLIC_URL`);
 - the IdP and RP DIDComm backends to both use RISC Zero;
 - exactly one usable RP token grant for the Direct Login series (the evaluator
   creates one through an unmeasured preparation SSO flow if none exists);
@@ -81,7 +87,7 @@ password is not written to the command history:
 ```powershell
 $env:DIDSSO_BENCH_EMAIL = "benchmark@example.com"
 $env:DIDSSO_BENCH_PASSWORD = "replace-with-the-account-password"
-.\evaluation\benchmark-protocol.ps1 -Scenario all -Runs 100 -WarmupRuns 1
+.\evaluation\benchmark-protocol.ps1 -Scenario all -Runs 30 -WarmupRuns 1
 ```
 
 The three protocol series are:
@@ -110,12 +116,14 @@ RISC Zero backend. No series-order randomization or cooldown is performed.
 ## 4. Run the proof measurements
 
 ```powershell
-.\evaluation\benchmark-proofs.ps1 -Runs 100 -WarmupRuns 1
+.\evaluation\benchmark-proofs.ps1 -Runs 30 -WarmupRuns 1
 ```
 
 Compilation, credential construction, verifier startup, and warm-up runs are
-recorded as excluded setup metadata. The 100 measured runs contain RISC Zero
-proof generation and verification.
+excluded from the measured proof times. The report records credential creation
+time, verifier startup time and the warm-up count, but not a separate
+compilation time. The 30 measured runs contain RISC Zero proof generation and
+verification.
 
 For every measured proof, the report records `receipt_size_bytes`, the size of
 the Base64-decoded serialized RISC Zero receipt, and
@@ -132,7 +140,7 @@ persistent verifier whose startup is excluded from the measured runs.
 Both suites can be started sequentially with:
 
 ```powershell
-.\evaluation\evaluate.ps1 -Suite all -Runs 100 -WarmupRuns 1
+.\evaluation\evaluate.ps1 -Suite all -Runs 30 -WarmupRuns 1
 ```
 
 ## 5. Measurement boundaries
@@ -141,10 +149,16 @@ Browser boundaries use `performance.timeOrigin + performance.now()`. Internal
 durations use `time.perf_counter_ns()`. Cross-process events use Unix epoch
 milliseconds because all components execute on the same experimental host.
 
-The SSO start is captured in the IdP's Accept-button handler. The end is captured
-after the RP has validated the session, loaded the account, updated the claims
-DOM, and passed two animation frames. WebDriver's polling delay therefore does
-not form part of the reported End-to-End duration.
+The browser captures the start immediately before dispatching the scripted
+click on the IdP's Accept button or the RP's DID Login button. It captures the
+end after the RP page has checked the session status, loaded the account,
+updated the claims DOM, and passed two animation frames. Those frames provide
+an opportunity for rendering; the script does not directly observe the screen.
+WebDriver's polling delay after the end timestamp is not part of the reported
+end-to-end duration.
+
+If the evaluator has to prepare a token grant through an unmeasured SSO flow,
+that flow also serves as the first SSO warm-up when the SSO series is selected.
 
 The evaluator authenticates the benchmark account before the series. If the
 one-hour IdP browser session expires during a long proof series, it submits the
