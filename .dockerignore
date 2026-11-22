@@ -3,7 +3,6 @@
 .gitattributes
 .env
 .env.*
-!.env.example
 
 **/.venv
 **/.venv-*
@@ -13,7 +12,7 @@
 **/target
 **/artifacts
 **/data
-/zk-stark
+/STWO
 /benchmark-results
 
 # Runtime state, identities, private keys, receipts and user data must not be
@@ -23,7 +22,7 @@ IdP/didcomm-backend/*.json
 RP/*.json
 RP/didcomm-backend/*.json
 zk-risc0/*.json
-zk-stark/*.json
+STWO/*.json
 
 *.log
 *.receipt

@@ -7,8 +7,12 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
-/firefox-extension/backend/tests
-/zk-stark/stwo-cairo/
+/STWO/stwo-cairo/
+
+# Local test files
+tests/
+test_*.py
+test_*.cjs
 
 # Component-local runtime data, including mutable scope configuration.
 **/data/
@@ -28,7 +32,6 @@ Desktop.ini
 
 # Additional local environment files
 .env.*
-!.env.example
 venv/
 
 # Python tooling and coverage artifacts

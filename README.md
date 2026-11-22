@@ -1,156 +1,146 @@
-# DIDSSO Prototype
+# DIDSSO
 
-This repository contains the Docker Compose configuration for the DIDSSO
-prototype and the Firefox extension required to use it.
+DIDSSO is a research prototype for privacy-enhanced single sign-on based on the
+OpenID Connect (OIDC) Authorization Code Flow. Users manage a separate
+decentralized identifier (DID) for each relying party (RP). During SSO, the RP
+uses DIDComm and a RISC Zero registration proof to demonstrate that it holds a
+valid credential without directly disclosing its public identity to the
+identity provider (IdP) in the code exchange.
 
-The reproducible local performance-measurement procedure is documented in
-[evaluation/EVALUATION.md](evaluation/EVALUATION.md).
+The prototype also supports **Direct DID-Based Login** for returning users and
+**DID replacement** to restore an existing account after key loss. It is
+intended for a controlled local environment, not as a production-ready or
+drop-in OIDC implementation.
 
-## Requirements
+[Requirements for Docker setup](#requirements-for-docker-setup) ·
+[Docker quick start](#docker-quick-start) ·
+[Using the prototype](#using-the-prototype) ·
+[Troubleshooting when using the prototype](#troubleshooting-when-using-the-prototype) ·
+[Stopping and resetting the Docker setup](#stopping-and-resetting-the-docker-setup) ·
+[Documentation](#documentation)
 
-- Git
-- Docker Desktop with Docker Compose
-- Firefox
+## Requirements for Docker Setup
 
-The published images target `linux/amd64`. No local Python, Rust, RISC Zero, or
-WSL installation is required to run them.
+The prototype was tested successfully in the Docker setup listed below. These
+versions are not minimum requirements. If you encounter compatibility issues,
+try using the listed versions.
 
-Tested with:
+| Component | Reference version |
+| --- | --- |
+| Host operating system | Windows 11 (x86-64) |
+| Git | 2.53.0.windows.2 |
+| Docker Desktop | 4.94.0 (build 241994) |
+| Docker CLI | 29.8.2 |
+| Docker Compose | 5.5.1 |
+| Firefox | 160.0.1 |
 
-- Docker Desktop 4.94.0
-- Docker CLI 29.8.2
-- Docker Compose v5.5.1
-- Firefox 157.0
+The published images target `linux/amd64`. Running them on Apple Silicon Macs
+requires AMD64 emulation, which Docker Desktop supports.
 
-## Download and Start the Containers
+## Docker Quick Start
 
-Clone the repository so that both the Compose files and the Firefox extension
-are available:
+Start Docker Desktop and wait for the Linux container engine to become ready.
 
-```powershell
+```sh
 git clone https://github.com/mrvnplz/DIDSSO.git
 cd DIDSSO
-```
-
-Create a `.env` file.
-
-PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-macOS/Linux:
-
-```bash
-cp .env.example .env
-```
-
-The file must contain the published GHCR namespace and image version:
-
-```dotenv
-DIDSSO_REGISTRY=ghcr.io/mrvnplz
-DIDSSO_VERSION=1.0.1
-```
-
-The packages are public, so no GHCR login is required. Pull and start all five
-containers from a terminal:
-
-```text
 docker compose pull
 docker compose up -d
 docker compose ps
 ```
 
-Open the IdP first at <https://127.0.0.1:3001>. It uses a self-signed TLS
-certificate, so Firefox displays a certificate warning on the first visit.
-Accept this warning for the local prototype. Docker Desktop may display a link
-using `http://127.0.0.1:3001` because it cannot infer the application protocol
-from a TCP port mapping. The IdP must nevertheless be opened using **HTTPS**.
+Compose uses the public GHCR images pinned by release tag in
+[`compose.yaml`](compose.yaml).
 
-The RP is available at <http://127.0.0.1:3002>.
+1. In Firefox, open `about:debugging#/runtime/this-firefox`. Choose **Load
+   Temporary Add-on** and select
+   [`firefox-extension/manifest.json`](firefox-extension/manifest.json) from
+   your local clone.
+2. Open the extension from the Firefox toolbar. **Wallet loaded.** confirms
+   that the wallet backend is reachable, even if no DIDs are listed yet.
+   If you see **Could not reach the DID service.**, check that the backend is
+   running (in Docker, use `docker compose ps wallet-backend`).
+3. Open the IdP at <https://127.0.0.1:3001> and the RP at
+   <http://127.0.0.1:3002>. Accept the self-signed certificate warning
+   for the local IdP.
 
-### Configure the IdP for SSO
+   > **Hint:** Docker Desktop may display an `http://127.0.0.1:3001` link
+   > because the TCP port mapping does not indicate whether the application
+   > uses HTTP or HTTPS. Open the IdP using `https://` instead.
 
-The RP uses `https://127.0.0.1:3001` as the browser-facing IdP origin by
-default. To change it, set `DIDSSO_IDP_WEB_PUBLIC_URL` in `.env` before RP
-registration and recreate the RP backend:
+The extension is loaded separately from the containers. Reload the temporary
+add-on after restarting Firefox.
 
-```text
-docker compose up -d rp-didcomm
-```
+## Using the Prototype
 
-Copy the Master DID from the configured IdP homepage, submit the RP
-registration at the RP admin dashboard, and accept it at the IdP. The RP
-binds the first accepted IdP to the configured web origin. Users can then
-start SSO without entering a DID. After a full reset, repeat RP registration;
-the new Master DID is recorded automatically without changing `.env`.
-When working from source, rebuild the RP images using `compose.build.yaml`
-before starting them; changing the source does not update published images.
+1. Create a test user account at the IdP and copy the Master DID displayed on
+   its homepage.
+2. Open the RP's Admin-dashboard. Submit a registration request with an RP
+   name and the copied Master DID, then accept the request in the IdP's Admin-dashboard.
+3. Choose how to manage your DIDs in the Firefox extension. We recommend
+   **automatic DID management**: it selects an existing Pairwise DID for
+   the RP or creates one if needed. 
+   
+   With manual DID management, create a
+   DID if needed and select the one you want to use before starting SSO.
+4. On the RP homepage, select **Privacy-Enhanced SSO**. Sign in at the IdP
+   if required, then consent to the requested claims. The browser returns to
+   the RP account page. Processing the request might take a while (~55 seconds) due to the RISC Zero proof generation.
+5. To sign in again, select **DID Login** on the RP homepage. This uses the
+   established User Pairwise DID without generating another registration
+   proof. The prototype still needs a usable token grant to retrieve current
+   claims. Make sure to selec the DID which you have performed the SSO with.
 
-Useful commands:
+## Troubleshooting When Using the Prototype
 
-```text
-docker compose logs -f
-docker compose down
-```
+- **Could not reach the DID service.** Load or reload the temporary Firefox
+  add-on, then check that the wallet backend is running on port `8765`.
+- **No accepted RISC0 registration is bound to the configured IdP web
+  origin.** Check **Accepted requests** in the RP's **Admin** dashboard.
+  The registration must match the IdP used for SSO and the active proof
+  backend.
+- **The DIDSSO plugin did not attach a bound pairwise DID.** Use the same RP
+  address and DID that you used for the successful SSO. If you have not yet
+  signed in to that RP, start with **Privacy-Enhanced SSO**.
+- **Current IdP claims could not be retrieved.** Check the rest of the error:
+  if the grant is missing, expired, or rejected, run **Privacy-Enhanced SSO**
+  again with the existing DID to obtain a new grant.
 
-`docker compose down` retains the persistent prototype data. The command
-`docker compose down --volumes` additionally deletes users, DIDs, keys,
-sessions, and token grants. Use it only when an intentional full reset is
-required.
+The [troubleshooting guide](docs/TROUBLESHOOTING.md) explains these and other
+messages from the extension, the IdP and RP dashboards, sign-in, and DID
+replacement. It applies to both Docker and native execution. For problems
+installing or starting the Windows services, see
+[Native setup troubleshooting](docs/NATIVE_SETUP_WINDOWS.md#troubleshooting).
 
-## Load and Use the Firefox Extension
+## Stopping and Resetting the Docker Setup
 
-The extension itself runs in Firefox and is not included in a container. Its
-local wallet backend is already started by Docker as `wallet-backend` on
-`127.0.0.1:8765`.
+Use `docker compose logs -f` to inspect service logs. Stop the Docker setup
+with `docker compose down`; the named volumes retain test accounts, DIDs,
+registration records, and other runtime state. **Use
+`docker compose down --volumes` only for an intentional full reset.** It removes
+that state, including private keys. The RP must be registered again after a
+reset. The Firefox extension's browser-side storage is not cleared when
+Docker volumes are removed.
 
-1. Download the repository, or at least its `firefox-extension` directory.
-2. Open `about:debugging#/runtime/this-firefox` in Firefox by entering it into the search bar.
-3. Select **Load Temporary Add-on**.
-4. Select `firefox-extension/manifest.json`.
-5. Open the DIDSSO extension from the Firefox toolbar. Its status should show
-   that the wallet backend is reachable.
-6. Leave automatic DID management enabled for the normal flow. The extension
-   then selects an existing pairwise DID for the current RP or prepares a new
-   one when Privacy-Enhanced SSO is started. Direct DID-Based Login uses an
-   existing RP-bound DID.
-7. Open <http://127.0.0.1:3002> and select **Privacy-Enhanced SSO** or
-   **Direct DID-Based Login** from the RP page.
+## Documentation
 
-Firefox loads the extension only temporarily. After restarting Firefox, repeat
-steps 2 through 4.
+- [Native setup on Windows](docs/NATIVE_SETUP_WINDOWS.md) — install the
+  prerequisites, build the proof tooling in WSL, start the services, and
+  troubleshoot or reset the local setup.
+- [Reproduce the evaluation](evaluation/EVALUATION.md) — run the protocol and
+  proof benchmarks in the instrumented native setup.
+- [Working with benchmark outputs](evaluation/BENCHMARK_ANALYSIS.md) —
+  identify the generated files, import the CSVs, and check that a report is
+  complete.
+- [RISC Zero proof component](zk-risc0/README.md) — how the prototype issues
+  registration credentials, generates proofs, and verifies receipts.
+- [Developer Guide](docs/DEVELOPER_GUIDE.md) — where to change protocol
+  behavior, add a proof backend, or extend the RP to support multiple IdPs.
+- [Extra Work — Optional STWO Proof Backend](STWO/STWO_SETUP.md) — set up STWO
+  in WSL and switch proof backends in the native setup.
 
-## Runtime Data
-
-Native execution stores persistent state separately for each participant:
-
-- `IdP/data/`: user accounts, browser sessions, DIDs and private keys,
-  registrations, Authorization Codes, token grants, and DID relationship state;
-- `RP/data/`: DIDs and private keys, IdP registrations and credentials,
-  authentication sessions, local user accounts, token grants, and scope configuration;
-- `firefox-extension/data/`: the user wallet, selected DID, authorization context,
-  and the latest SSO result.
-
-`DIDSSO_DATA_DIR` can override the data directory for an individual component.
-Containers use `/data`, backed by the separate `idp-data`, `rp-data`, and
-`wallet-data` volumes; the IdP web server and protocol backend share `idp-data`.
-Existing Docker scope configuration at `/data/data/authorization_config.json`
-is moved to `/data/authorization_config.json` on first use if the new file is absent.
-
-All component data directories, including the RP scope configuration, are
-excluded from Git and Docker build contexts. Without a stored scope
-configuration, the RP uses the built-in `profile` and `email` defaults. The
-administrator can change and persist these settings through the RP dashboard.
-Benchmark reports remain in `benchmark-results/` and are not participant
-runtime state.
-
-For native execution, `reset-state.ps1` resets account and protocol state in
-these directories and removes both registration signing keys and the RP scope
-configuration, including its legacy nested copy if present. New signing keys
-are generated on demand, and the RP returns to its built-in `profile` and
-`email` scopes. Stop all prototype services before resetting and restart them
-afterwards. Docker volumes and browser-side extension storage are not reset by
-this local procedure. Use `reset-state.ps1 -ValidateOnly` or `-WhatIf` to inspect
-the planned writes and removals without changing data.
+For builds from source, use the [Compose build overlay](compose.build.yaml)
+and override `DIDSSO_REGISTRY` and `DIDSSO_VERSION` (for example, with
+`didsso-local` and `local`) to keep local image tags separate from published
+releases. For a custom IdP origin, set `DIDSSO_IDP_WEB_PUBLIC_URL` before
+registering the RP.

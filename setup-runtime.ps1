@@ -134,7 +134,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "The Firefox backend runtime has incompatible dependencies"
 }
 
-& $pluginPythonExecutable -c "import cryptography, didcomm, pytest; from did_peer_4.input_doc import KeySpec, input_doc_from_keys_and_services; print('Firefox backend runtime is ready')"
+& $pluginPythonExecutable -c "import cryptography, didcomm; from did_peer_4.input_doc import KeySpec, input_doc_from_keys_and_services; print('Firefox backend runtime is ready')"
 if ($LASTEXITCODE -ne 0) {
     throw "The Firefox backend runtime dependency check failed"
 }

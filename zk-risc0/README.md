@@ -1,137 +1,100 @@
-# RISC Zero registration credential proof
+# RISC Zero Registration Credential Proof
 
-This workspace implements the zero-knowledge registration proof used by the
-DIDSSO demo. It is deliberately separate from `../zk-stark`: both backends are
-kept, but one SSO flow uses exactly one backend.
+RISC Zero is the default registration-proof backend in DIDSSO. During
+Privacy-Enhanced SSO, it lets the IdP verify that the RP has a valid
+registration credential without receiving the credential secret or signature
+in the code exchange. Direct DID-Based Login does not generate a new
+registration proof.
 
-## Proven statement
+For installation, see the [native Windows setup](../docs/NATIVE_SETUP_WINDOWS.md#build-the-risc-zero-proof-tool)
+or the [Docker quick start](../README.md#docker-quick-start). For measurements,
+see [Reproduce the Evaluation](../evaluation/EVALUATION.md). The
+[optional STWO backend](../STWO/STWO_SETUP.md) is documented separately.
 
-The zkVM guest proves that the prover knows a 256-bit credential secret and a
-P-256 (secp256r1) ECDSA signature for that value which verifies under the
-disclosed IdP public key. The secret is used as the 32-byte prehashed ECDSA
-message; the IdP uses a dedicated key for this protocol.
-The receipt is also bound to the current authorization nonce through a
-domain-separated SHA-256 digest.
+## Credential Issuance, Proving, and Verification
 
-Private guest input:
+1. **IdP issues the credential.** When the IdP accepts an RP registration,
+   it generates a random 256-bit secret and signs it with a dedicated
+   P-256 ECDSA registration key. The secret is passed to ECDSA as a
+   prehashed 32-byte value, so it is not hashed again. The signature covers
+   the secret rather than the complete credential object. The registration
+   key is distinct from the IdP's DIDComm keys.
+2. **RP creates the proof.** For each code exchange, the Python adapter
+   derives a domain-separated SHA-256 digest from the SSO session's nonce
+   and sends the proving inputs to the Rust host. The zkVM guest validates
+   the P-256 public key and checks the signature against the credential
+   secret. On success, the host serializes the receipt and returns it in
+   Base64 for inclusion in the DIDComm code-exchange message.
+3. **IdP verifies the receipt.** The IdP obtains the expected nonce from
+   the authorization-code record and the expected public key from its
+   locally stored registration key. The Rust verifier checks the receipt
+   against the locally compiled guest's image ID and compares the journal's
+   protocol version, public key, and context digest with the expected values.
+   The IdP starts one verifier process at backend startup and verifies each
+   received receipt separately.
 
-- credential secret
-- signature `r` and `s`
-- P-256 IdP public-key coordinates before they are copied to the journal
-- 256-bit request-context digest
+## What the Proof Reveals
 
-Public journal:
+The credential secret and ECDSA signature components are private inputs.
+The receipt's public journal contains the protocol version, the IdP
+registration public key, and the request-context digest. The key and digest
+are supplied to the guest and copied into the journal after the signature
+check succeeds. See [RISC Zero's receipt documentation](https://dev.risczero.com/api/3.0/zkvm/receipts)
+for how the journal and image ID relate to verification.
 
-- protocol version
-- IdP public key
-- 256-bit request-context digest
+The adapter checks the outer proof envelope, but its claimed method ID
+and request values are not trust anchors. The IdP uses its own expected
+values and the locally compiled guest. The Rust host is built with
+`disable-dev-mode` so development receipts are not accepted.
 
-The credential, signature, and execution trace are not journal values. The
-pairwise DID is intentionally not part of this proof. DIDComm authenticates the
-sender separately; possession of the signed credential acts as the registration
-authorization.
+The receipt attests to a valid signature and the expected request context.
+It does not bind the credential proof to the RP's public identity or establish
+that the party redeeming the code is the RP that initiated authorization.
+DIDComm authenticates the sending DID separately. The proof does not hide
+network metadata, and the prototype does not implement credential expiration
+or selective revocation.
 
-The method is universal across RPs and IdPs. A verifier must still compare the
-journal public key with its own expected key and the context digest with the
-current nonce. The IdP-side verifier performs both comparisons in addition to
-checking the compiled RISC Zero method ID.
+## Source Layout and Host Interface
 
-## Workspace
+| Source | Responsibility |
+| --- | --- |
+| [`credential_risc0.py`](credential_risc0.py) | Issues credentials, prepares proof inputs, and manages calls to the Rust host for both protocol backends. |
+| [`host/src/main.rs`](host/src/main.rs) | Runs the prover, serializes receipts, and verifies receipts and journal values. |
+| [`methods/guest/src/main.rs`](methods/guest/src/main.rs) | Checks the P-256 signature inside the zkVM and commits the public journal. |
+| [`types/src/lib.rs`](types/src/lib.rs) | Defines the input and journal formats shared by host and guest. |
+| [`risc0_wsl.cmd`](risc0_wsl.cmd) and [`risc0_wsl.ps1`](risc0_wsl.ps1) | Run the Linux host binary from the native Windows setup. |
 
-```text
-host/                 JSON CLI for proving and verification
-methods/guest/        zkVM guest that verifies the credential signature
-types/                shared private-input and public-journal types
-credential_risc0.py   Python adapter used by the RP and IdP backends
-risc0_wsl.cmd         Windows entry point
-risc0_wsl.ps1         PowerShell-to-WSL bridge
-```
+The host exposes `prove` and `verify` for single JSON requests and
+`verify-server` for the IdP's persistent, newline-delimited JSON interface.
+`method-id` prints the compiled guest's image ID without requiring a JSON
+request.
 
-The CLI accepts JSON on stdin and writes JSON on stdout:
+## Rebuild the Proof Host
 
-```powershell
-.\risc0_wsl.cmd method-id
-.\risc0_wsl.cmd prove
-.\risc0_wsl.cmd verify
-.\risc0_wsl.cmd verify-server
-```
-
-`prove` expects four fixed-width, big-endian 32-byte hex strings plus the
-64-byte P-256 public key encoded as `x || y`. `verify` expects a Base64-encoded
-serialized receipt, that expected IdP public key, and the expected context
-digest.
-
-The WSL bridge executes the prebuilt `target/release/host` binary directly.
-It builds the binary once only when it does not exist. After changing Rust
-guest, host, or shared-type sources, rebuild it explicitly:
-
-```bash
-cargo build --release -p host
-```
-
-`verify-server` uses newline-delimited JSON and stays alive for multiple
-requests. The IdP starts this process once during backend startup and reuses it
-for all receipt verifications.
-
-## Selecting the SSO backend
-
-Both DIDComm `start.ps1` scripts default to RISC Zero. Set the same value for
-the RP and IdP before starting them:
+With the
+[Linux toolchain set up](../docs/NATIVE_SETUP_WINDOWS.md#build-the-risc-zero-proof-tool),
+open PowerShell in the repository's `zk-risc0/` directory and run:
 
 ```powershell
-$env:DIDSSO_PROOF_BACKEND = "risc0" # zero-knowledge RISC Zero credential
-$env:DIDSSO_PROOF_BACKEND = "stwo"  # existing STWO-Cairo v3 credential
+wsl.exe bash -lc 'cargo build --release --locked -p host && ./target/release/host method-id'
 ```
 
-Credentials are backend-specific. Switching backend requires registering the
-RP again so that the IdP issues the matching credential. Existing STWO v3
-credentials remain usable when `stwo` is selected.
-
-The IdP keeps separate signing keys: STWO uses its native Stark curve in
-`registration_signing_key.json`; RISC Zero uses P-256 in
-`registration_signing_key_risc0_p256.json`. This prevents cross-backend key or
-signature-format reuse.
-
-## Security and operation
-
-- The host enables RISC Zero's `disable-dev-mode` feature. The start scripts
-  also remove `RISC0_DEV_MODE`; fake development receipts are not accepted.
-- The SSO nonce is generated with 32 random bytes. SHA-256 with the fixed
-  `did-sso:registration:risc0:v1` domain binds the receipt to that request.
-- The outer proof envelope, its claimed method ID, and its copied nonce are not
-  trusted. Verification uses the receipt, the locally compiled method ID, and
-  IdP-side expected values.
-- The RP does not verify its newly generated receipt. Only the IdP performs the
-  security-relevant verification, including method ID, IdP key, and request
-  context. Removing this duplicate RP check does not weaken the IdP boundary.
-- There is no credential expiry or revocation mechanism in this prototype.
-- Zero knowledge protects the receipt witness. It does not hide DIDComm/network
-  metadata, application logs, or values deliberately published in the journal.
-- P-256 verification uses the zkVM-only `risc0-crypto` acceleration. Version
-  `0.1.0-rc.1` is an unaudited prerelease and must be replaced or independently
-  reviewed before production use.
-
-## Build and tests
-
-Run inside WSL from this directory:
+If you are already in WSL Bash in that directory, run:
 
 ```bash
-cargo fmt --all -- --check
-cargo test -p host
-cargo build --release -p host
-./target/release/host method-id
+cargo build --release --locked -p host && ./target/release/host method-id
 ```
 
-Local benchmark on 2026-08-08 with a Composite Receipt:
+The command prints the guest image ID after a successful build. Rebuild
+explicitly after changing the Rust host, guest, or shared types: the
+Windows wrapper builds a missing host but does not replace an existing one.
 
-- before direct-binary/persistent-verifier changes: prove 164.00 s, verify
-  107.21 s, total 271.21 s;
-- after the changes: verifier startup 4.56 s, prove 54.65 s, first warm verify
-  0.027 s, second warm verify 0.025 s, first-flow total 54.67 s.
+- If Cargo reports Windows linker errors such as `LNK2019` or `LNK1120`,
+  check that the proof build ran inside WSL. A `PS C:\...` prompt is
+  PowerShell on Windows; use the `wsl.exe` command above from that prompt.
 
-Both optimized verification runs accepted the receipt and reused the same
-verifier process. Timings are machine-specific.
 
-The STWO backend deliberately retains Stark-curve ECDSA because it is native to
-that Cairo/STWO path. The RISC Zero backend uses accelerated P-256 instead of
-emulating the Stark curve in general RISC-V instructions.
+
+The guest uses the pinned prerelease `risc0-crypto` dependency for P-256
+verification. This integration is intended for the research prototype,
+not production use.

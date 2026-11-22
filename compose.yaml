@@ -2,7 +2,7 @@ name: didsso
 
 services:
   idp-didcomm:
-    image: ${DIDSSO_REGISTRY:-didsso-local}/idp-didcomm:${DIDSSO_VERSION:-local}
+    image: ${DIDSSO_REGISTRY:-ghcr.io/mrvnplz}/idp-didcomm:${DIDSSO_VERSION:-1.0.2}
     platform: linux/amd64
     init: true
     restart: unless-stopped
@@ -16,7 +16,7 @@ services:
       - didsso
 
   idp-web:
-    image: ${DIDSSO_REGISTRY:-didsso-local}/idp-web:${DIDSSO_VERSION:-local}
+    image: ${DIDSSO_REGISTRY:-ghcr.io/mrvnplz}/idp-web:${DIDSSO_VERSION:-1.0.2}
     platform: linux/amd64
     restart: unless-stopped
     environment:
@@ -32,7 +32,7 @@ services:
       - didsso
 
   wallet-backend:
-    image: ${DIDSSO_REGISTRY:-didsso-local}/wallet-backend:${DIDSSO_VERSION:-local}
+    image: ${DIDSSO_REGISTRY:-ghcr.io/mrvnplz}/wallet-backend:${DIDSSO_VERSION:-1.0.2}
     platform: linux/amd64
     restart: unless-stopped
     environment:
@@ -45,7 +45,7 @@ services:
       - didsso
 
   rp-didcomm:
-    image: ${DIDSSO_REGISTRY:-didsso-local}/rp-didcomm:${DIDSSO_VERSION:-local}
+    image: ${DIDSSO_REGISTRY:-ghcr.io/mrvnplz}/rp-didcomm:${DIDSSO_VERSION:-1.0.2}
     platform: linux/amd64
     init: true
     restart: unless-stopped
@@ -65,7 +65,7 @@ services:
       - didsso
 
   rp-web:
-    image: ${DIDSSO_REGISTRY:-didsso-local}/rp-web:${DIDSSO_VERSION:-local}
+    image: ${DIDSSO_REGISTRY:-ghcr.io/mrvnplz}/rp-web:${DIDSSO_VERSION:-1.0.2}
     platform: linux/amd64
     restart: unless-stopped
     ports:

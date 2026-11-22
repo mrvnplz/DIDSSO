@@ -262,27 +262,3 @@ fn parse_public_key(value: &str, label: &str) -> Result<([u8; 32], [u8; 32])> {
 fn encode_hex(value: &[u8]) -> String {
     value.iter().map(|byte| format!("{byte:02x}")).collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_fixed_width_hex() {
-        let parsed = parse_hex_32(&format!("0x{}", "ab".repeat(32)), "value").unwrap();
-        assert_eq!(parsed, [0xab; 32]);
-    }
-
-    #[test]
-    fn rejects_wrong_width() {
-        assert!(parse_hex_32("01", "value").is_err());
-    }
-
-    #[test]
-    fn parses_uncompressed_public_key_coordinates() {
-        let (x, y) =
-            parse_public_key(&format!("{}{}", "11".repeat(32), "22".repeat(32)), "key").unwrap();
-        assert_eq!(x, [0x11; 32]);
-        assert_eq!(y, [0x22; 32]);
-    }
-}

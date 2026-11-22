@@ -11,13 +11,13 @@ else {
     Remove-Item Env:DIDSSO_EVALUATION_ENABLED -ErrorAction SilentlyContinue
 }
 $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$zkStark = (Resolve-Path (Join-Path $PSScriptRoot "..\..\zk-stark")).Path
+$stwoDir = (Resolve-Path (Join-Path $PSScriptRoot "..\..\STWO")).Path
 $zkRisc0 = (Resolve-Path (Join-Path $PSScriptRoot "..\..\zk-risc0")).Path
 $env:AUTHLIB_JOSE_MAX_CIPHERTEXT_SIZE = "16777216"
-$env:STWO_RUN_AND_PROVE = Join-Path $zkStark "run_and_prove_wsl.cmd"
-$env:STWO_VERIFY = Join-Path $zkStark "verify_wsl.cmd"
-$env:STWO_SCARB = Join-Path $zkStark "scarb_wsl.cmd"
-$env:STWO_CAIRO_EXECUTE = Join-Path $zkStark "cairo_execute_wsl.cmd"
+$env:STWO_RUN_AND_PROVE = Join-Path $stwoDir "run_and_prove_wsl.cmd"
+$env:STWO_VERIFY = Join-Path $stwoDir "verify_wsl.cmd"
+$env:STWO_SCARB = Join-Path $stwoDir "scarb_wsl.cmd"
+$env:STWO_CAIRO_EXECUTE = Join-Path $stwoDir "cairo_execute_wsl.cmd"
 $env:STWO_CHANNEL_HASH = "blake2s"
 $env:STWO_ALLOW_NATIVE_WINDOWS = "0"
 $env:RISC0_CREDENTIAL_CLI = Join-Path $zkRisc0 "risc0_wsl.cmd"

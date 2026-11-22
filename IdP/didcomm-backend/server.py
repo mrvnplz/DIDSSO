@@ -23,7 +23,7 @@ from did_peer_4 import resolve as resolve_peer_4
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(WORKSPACE_DIR))
-sys.path.append(str(WORKSPACE_DIR / "zk-stark"))
+sys.path.append(str(WORKSPACE_DIR / "STWO"))
 sys.path.append(str(WORKSPACE_DIR / "zk-risc0"))
 
 from sso_claims import claims_for_scopes, normalize_scopes

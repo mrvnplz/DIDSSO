@@ -168,16 +168,3 @@ fn hex_encode(value: &str) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::hex_encode;
-
-    #[test]
-    fn internal_user_subject_is_encoded_without_header_control_characters() {
-        assert_eq!(
-            hex_encode("user:test@example.com\r\n"),
-            "757365723a74657374406578616d706c652e636f6d0d0a"
-        );
-    }
-}

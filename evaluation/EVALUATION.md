@@ -1,201 +1,97 @@
-# Quantitative Evaluation
+# Reproduce the Evaluation
 
-The evaluation scripts implement the measurements defined in the thesis
-methodology. Protocol measurements use a real Firefox instance and the Firefox
-extension. Proof measurements call the RISC Zero backend directly. STWO remains
-an additional implementation but is not part of the quantitative evaluation.
-The default is 30 recorded runs per series plus one unmeasured warm-up run.
+Use the native Windows setup with RISC Zero in WSL 2. The protocol benchmark
+measures Privacy-Enhanced SSO and Direct DID-Based Login with either a valid
+access token or a token refresh. The separate proof benchmark measures RISC
+Zero proof generation, verification, and artifact sizes.
 
-The step-by-step procedure for validating, importing, plotting, and
-interpreting the resulting CSV data is provided in
-[`BENCHMARK_ANALYSIS.md`](BENCHMARK_ANALYSIS.md).
+- [Prepare the environment](#prepare-the-environment)
+- [Start the instrumented prototype](#start-the-instrumented-prototype)
+- [Run the benchmarks](#run-the-benchmarks)
+- [Find the results](#find-the-results)
+- [Troubleshooting](#troubleshooting)
 
-## 1. Prerequisites
+## Prepare the Environment
 
-Set up the normal local runtime and the separate, pinned Selenium evaluation
-runtime:
+Follow the [native Windows guide](../docs/NATIVE_SETUP_WINDOWS.md) to install
+the prerequisites, prepare the Python environments, and build the RISC Zero
+host in WSL 2. For the protocol benchmark, also install the separate Selenium
+environment from the repository root:
 
 ```powershell
-.\setup-runtime.ps1
 .\evaluation\setup-evaluation.ps1
 ```
 
-Build the current RISC Zero release host in WSL before starting the services
-(see [the RISC Zero setup guide](../zk-risc0/README.md)). The WSL wrapper builds
-the host only when the executable is missing; it does not refresh an existing
-binary after source changes.
+Use test data. The protocol benchmark can create or update an RP account and
+deliberately expires access tokens for the refresh scenario. Do not run the
+native and Docker setups at the same time.
 
-Firefox must be installed. Selenium Manager obtains a compatible geckodriver
-the first time the browser benchmark is started. Browser and driver startup are
-completed before any measured operation.
+## Start the Instrumented Prototype
 
-The browser automation uses `.venv-evaluation`. Keeping this environment
-separate is intentional: current Selenium releases require newer versions of
-some packages than the DIDComm libraries in `.venv-didcomm` support.
+For the protocol benchmark, start each service in a separate PowerShell
+terminal from the repository root. Use `-Evaluation` on all three Python
+backends, not on the Rust web applications.
 
-The benchmark expects:
+| Service | Commands |
+| --- | --- |
+| IdP protocol backend | `.\IdP\didcomm-backend\start.ps1 -Evaluation` |
+| RP protocol backend | `.\RP\didcomm-backend\start.ps1 -Evaluation` |
+| Wallet backend | `.\firefox-extension\backend\start.ps1 -Evaluation` |
+| IdP web application | `Set-Location IdP`, then `cargo run --locked` |
+| RP web application | `Set-Location RP`, then `cargo run --locked` |
 
-- an IdP user account;
-- an accepted RP registration for RISC Zero at the IdP whose HTTPS origin
-  is configured on the RP backend (`DIDSSO_IDP_WEB_PUBLIC_URL`);
-- the IdP and RP DIDComm backends to both use RISC Zero;
-- exactly one usable RP token grant for the Direct Login series (the evaluator
-  creates one through an unmeasured preparation SSO flow if none exists);
-- all services to run locally, as specified by the methodology.
+Both protocol backends must use RISC Zero (`risc0`), the default. If you
+previously set `DIDSSO_PROOF_BACKEND` to `stwo`, unset it or set it to
+`risc0` in both backend terminals before starting them.
 
-## 2. Start the instrumented prototype
+Once the services are running, create a test account at the
+[IdP](https://127.0.0.1:3001) and complete the
+[RP registration](../README.md#using-the-prototype). Confirm that the request
+appears under Accepted requests in RP Admin. You do not need to sign in to
+the RP or load the extension manually: Selenium opens a fresh Firefox profile
+and loads the extension itself.
 
-Use five terminals. Run the web services normally and enable the opt-in,
-in-memory measurement endpoints on the three Python backends.
+## Run the Benchmarks
 
-```powershell
-# Terminal 1
-cd RP
-cargo run
-
-# Terminal 2
-cd RP\didcomm-backend
-.\start.ps1 -Evaluation
-
-# Terminal 3
-cd IdP
-cargo run
-
-# Terminal 4
-cd IdP\didcomm-backend
-.\start.ps1 -Evaluation
-
-# Terminal 5
-cd firefox-extension\backend
-.\start.ps1 -Evaluation
-```
-
-RISC Zero is the only proof backend used by this evaluation. It is the runtime
-default. If `DIDSSO_PROOF_BACKEND` was set previously, remove it or set it to
-`risc0` in both DIDComm backend terminals before starting them. The RP must have
-an accepted RISC Zero registration credential.
-
-Do not load the extension manually for the automated benchmark. Selenium starts
-a clean Firefox profile and installs a temporary archive of the repository's
-extension before the measurements begin.
-
-## 3. Run the protocol measurements
-
-Provide the existing IdP benchmark account through environment variables so the
-password is not written to the command history:
-
-```powershell
-$env:DIDSSO_BENCH_EMAIL = "benchmark@example.com"
-$env:DIDSSO_BENCH_PASSWORD = "replace-with-the-account-password"
-.\evaluation\benchmark-protocol.ps1 -Scenario all -Runs 30 -WarmupRuns 1
-```
-
-The three protocol series are:
-
-- `sso`: consent confirmation until the RP claims have been rendered;
-- `direct-access`: DID login with a valid Access Token;
-- `direct-refresh`: DID login after the evaluator has expired the RP's Access
-  Token, forcing the Refresh Token path.
-
-The Refresh Token endpoint returns both the rotated token pair and current
-claims in the same response. The script validates the actual token branch for
-every Direct Login run and aborts if it differs from the requested scenario.
-
-The default headed browser mode should be used for the reported measurements.
-`-Headless` is available for diagnostics, but those results must be identified
-as headless-browser measurements.
-
-The script uses one fresh Firefox profile for the complete invocation, disables
-the browser caches, and preserves cookies and wallet state between its series.
-Scenario order for `all` is SSO, Direct Access, then Direct Refresh. Only RISC
-Zero is evaluated, so there is no proof-backend ordering. The protocol report
-records the exact Firefox, geckodriver, Selenium, Python, platform, RISC Zero
-backend, and scenario order; the proof report records Python, platform, and the
-RISC Zero backend. No series-order randomization or cooldown is performed.
-
-## 4. Run the proof measurements
-
-```powershell
-.\evaluation\benchmark-proofs.ps1 -Runs 30 -WarmupRuns 1
-```
-
-Compilation, credential construction, verifier startup, and warm-up runs are
-excluded from the measured proof times. The report records credential creation
-time, verifier startup time and the warm-up count, but not a separate
-compilation time. The 30 measured runs contain RISC Zero proof generation and
-verification.
-
-For every measured proof, the report records `receipt_size_bytes`, the size of
-the Base64-decoded serialized RISC Zero receipt, and
-`proof_envelope_size_bytes`, the UTF-8 size of the deterministically serialized
-compact JSON proof envelope. The receipt size represents the proof artifact;
-the envelope size additionally includes protocol metadata and Base64 overhead.
-Neither value represents the size of the encrypted DIDComm message.
-
-These are integrated RISC Zero backend measurements, not isolated
-cryptographic-kernel benchmarks: they include the Python call, serialization,
-file handling, WSL wrapper, and proof subprocesses. RISC Zero uses one
-persistent verifier whose startup is excluded from the measured runs.
-
-Both suites can be started sequentially with:
+From a new PowerShell terminal at the repository root, run both benchmarks
+in sequence:
 
 ```powershell
 .\evaluation\evaluate.ps1 -Suite all -Runs 30 -WarmupRuns 1
 ```
 
-## 5. Measurement boundaries
+Enter the test account's email and password when prompted. The script uses
+`DIDSSO_BENCH_EMAIL` and `DIDSSO_BENCH_PASSWORD` instead if they are already
+set. The defaults are 30 measured runs and one unmeasured warm-up per series.
+The [published runs](../benchmark-results/) took about an hour in total on the
+reference machine, excluding installation and compilation.
 
-Browser boundaries use `performance.timeOrigin + performance.now()`. Internal
-durations use `time.perf_counter_ns()`. Cross-process events use Unix epoch
-milliseconds because all components execute on the same experimental host.
+To run the benchmarks separately:
 
-The browser captures the start immediately before dispatching the scripted
-click on the IdP's Accept button or the RP's DID Login button. It captures the
-end after the RP page has checked the session status, loaded the account,
-updated the claims DOM, and passed two animation frames. Those frames provide
-an opportunity for rendering; the script does not directly observe the screen.
-WebDriver's polling delay after the end timestamp is not part of the reported
-end-to-end duration.
+```powershell
+.\evaluation\benchmark-protocol.ps1 -Scenario all -Runs 30 -WarmupRuns 1
+.\evaluation\benchmark-proofs.ps1 -Runs 30 -WarmupRuns 1
+```
 
-If the evaluator has to prepare a token grant through an unmeasured SSO flow,
-that flow also serves as the first SSO warm-up when the SSO series is selected.
+Leave Firefox in its default visible mode when reproducing the published
+protocol measurements. The proof-only command needs the native DIDComm
+Python environment and the RISC Zero host in WSL, but no browser, running
+services, IdP account, or RP registration.
 
-The evaluator authenticates the benchmark account before the series. If the
-one-hour IdP browser session expires during a long proof series, it submits the
-same benchmark credentials again before the consent button is measured. This
-re-authentication therefore remains outside the `t0`--`t_end` interval.
+## Find the Results
 
-The current artifact has two competing navigation paths: the Firefox extension
-polls every second, while the RP waiting page polls every 1.2 seconds. Both are
-left unchanged. Every run records whether `extension` or `rp_session_poll`
-actually initiated navigation. The extension-detection timestamp is retained
-even when the RP page wins the race. Consequently:
+The reports are saved in [`benchmark-results/`](../benchmark-results/) by
+default. See [Working with Benchmark Outputs](BENCHMARK_ANALYSIS.md) for
+the file formats, CSV import, and how to check that a report is complete.
 
-- result-delivery latency ends at the actual navigation trigger;
-- extension polling delay is reported separately;
-- wallet-result validation latency includes delivery to the wallet backend and
-  its validation/binding work; it is not interpreted as pure transport time;
-- browser-processing latency runs from the actual navigation trigger until the
-  claims are visibly rendered;
-- the remaining time is labelled unattributed and is not interpreted as pure
-  DIDComm time.
+## Troubleshooting
 
-## 6. Results
+| Symptom | What to check |
+| --- | --- |
+| An evaluation endpoint is unavailable. | Check that the named Python backend is running and was started with `-Evaluation`. |
+| The RP has no accepted IdP credential for RISC0. | Check approval in IdP Admin, the configured IdP HTTPS origin, and that both backends use `risc0`. |
+| Direct login reports more than one usable token grant. | Use a dedicated test state. Direct-login measurements require exactly one usable grant; if there is none when starting the benchmark, the script prepares one through an unmeasured SSO. |
+| The proof tool fails to start. | Run the `method-id` check in the [native WSL setup](../docs/NATIVE_SETUP_WINDOWS.md#build-the-risc-zero-proof-tool). |
 
-Results are written after every completed run to `benchmark-results/`:
-
-- JSON report containing metadata, raw runs, errors, and summaries;
-- raw CSV with one row per run;
-- summary CSV with count, mean, median, sample standard deviation, minimum, and
-  maximum.
-
-The protocol benchmark writes the JSON report and both CSV files. The RISC Zero
-proof benchmark writes its raw values, setup metadata, errors, and summaries to
-a JSON report. Partial results remain available if a later run fails or the
-benchmark is cancelled. This applies to both the protocol and the potentially
-long-running proof suite. Run order is retained because the prototype's JSON
-state files grow during repeated flows and this may cause performance drift.
-
-Only reports with `status` equal to `completed` and the requested number of
-completed runs per series should be used for aggregate thesis results. The
-reported standard deviation is the sample standard deviation.
+For errors shown by the prototype itself, see the
+[prototype troubleshooting guide](../docs/TROUBLESHOOTING.md).
