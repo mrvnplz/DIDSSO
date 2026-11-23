@@ -89,7 +89,7 @@ add-on after restarting Firefox.
 5. To sign in again, select **DID Login** on the RP homepage. This uses the
    established User Pairwise DID without generating another registration
    proof. The prototype still needs a usable token grant to retrieve current
-   claims. Make sure to selec the DID which you have performed the SSO with.
+   claims. Make sure to select the DID which you have performed the SSO with.
 
 ## Troubleshooting When Using the Prototype
 
@@ -139,8 +139,7 @@ Docker volumes are removed.
 - [Extra Work — Optional STWO Proof Backend](STWO/STWO_SETUP.md) — set up STWO
   in WSL and switch proof backends in the native setup.
 
-For builds from source, use the [Compose build overlay](compose.build.yaml)
-and override `DIDSSO_REGISTRY` and `DIDSSO_VERSION` (for example, with
-`didsso-local` and `local`) to keep local image tags separate from published
-releases. For a custom IdP origin, set `DIDSSO_IDP_WEB_PUBLIC_URL` before
-registering the RP.
+To build the Docker images from source, follow the
+[local build steps](docs/DEVELOPER_GUIDE.md#build-and-run-the-docker-images-locally).
+To run the published images without building them, use the
+[Docker Quick Start](#docker-quick-start).
